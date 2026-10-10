@@ -16,10 +16,15 @@ describe("htmlToMarkdown", () => {
     )).toBe("**Hello** *world*, ~~select~~ me big ***both***.\n");
   });
 
-  it("keeps a line break, but not the one holding an empty paragraph open", () => {
+  // Plain-text paste writes each newline as a `<br>`, so a blank line between pasted paragraphs
+  // is two in a row.
+  it("keeps each line break, but not those holding the end of a paragraph open", () => {
     expect(htmlToMarkdown(
-      "<p>line one<br>line <b>two</b><br></p><p><br></p><h2>a<br>b</h2><pre>x<br>y</pre>",
-    )).toBe("line one\\\nline **two**\n\n## a b\n\n```\nx\ny\n```\n");
+      "<p>line one<br>line <b>two</b><br></p><p>pasted<br><br>after a blank line<br><br></p>" +
+      "<p><br></p><h2>a<br>b</h2><pre>x<br>y</pre>",
+    )).toBe(
+      "line one\\\nline **two**\n\npasted\\\n\\\nafter a blank line\n\n## a b\n\n```\nx\ny\n```\n",
+    );
   });
 
   // Typing "Hello " in bold leaves the space inside the run, and `**Hello **world` keeps its
@@ -33,10 +38,19 @@ describe("htmlToMarkdown", () => {
     )).toBe("**Hello** world, *see* **[this](https://example.com)**\n");
   });
 
+  // Bolding again what is already bold, or next to it, gives two elements for one stretch of
+  // bold; a pair of markers each would read `**A****B**`, with the asterisks showing.
+  it("writes one pair of markers for each stretch of formatting", () => {
+    expect(htmlToMarkdown(
+      '<p><b>A<span style="font-weight: bold;">B</span>C</b> and <b>pasted</b>' +
+      '<span style="font-weight: bold;">rebold</span>, <i><b>both</b> italic</i></p>',
+    )).toBe("**ABC** and **pastedrebold**, ***both** italic*\n");
+  });
+
   it("keeps code verbatim, without emphasis or escapes", () => {
     expect(htmlToMarkdown(
       '<pre><span style="font-weight: bold;">npm</span> install</pre>' +
-      "<p>Run <code>a*b_c</code> or <b><code>x</code></b></p>",
-    )).toBe("```\nnpm install\n```\n\nRun `a*b_c` or **`x`**\n");
+      "<p>Run <code>a*b_c</code> or <b><code>x</code></b>, <code>one<br>line</code></p>",
+    )).toBe("```\nnpm install\n```\n\nRun `a*b_c` or **`x`**, `one line`\n");
   });
 });

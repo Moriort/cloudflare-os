@@ -6,7 +6,7 @@
 // spellings export alike. Formatting Markdown has no syntax for (underline, colour, size, font,
 // alignment) is dropped and its text kept, as is emphasis inside code, which shows text verbatim.
 
-/** Tags that end a run of inline content, and with it any line break still waiting for text. */
+/** Tags that end a run of inline content, closing its emphasis and dropping any space or break. */
 const BLOCK_TAGS: Record<string, true> = Object.fromEntries([
   "h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "blockquote", "pre", "ul", "ol", "li", "hr",
   "table", "tr", "td", "th",
@@ -16,35 +16,46 @@ const BLOCK_TAGS: Record<string, true> = Object.fromEntries([
 export function htmlToMarkdown(html: string): string {
   const tokens = String(html).match(/<!--[\s\S]*?-->|<![^>]*>|<[^>]+>|[^<]+/g) || [];
   const lists: { type: "ul" | "ol"; count: number }[] = [];
-  const links: string[] = [];
+  const links: { href: string; depth: number }[] = [];
   const blockquotes: number[] = [];
-  // Each open emphasis element, and whether its markers are written yet. They are written at the
-  // first content inside it and closed before any trailing space, the only placement Markdown
-  // reads: `**Hello **world` keeps its asterisks, and an empty `****` is a horizontal rule.
-  const emphasis: { markers: string[]; open: boolean }[] = [];
+  // The emphasis each open element asks for, and the markers open in the output. Markers follow
+  // the formatting rather than the elements: they open at the first content that has it and close
+  // at the next content or block that does not, before the space between, the only placement
+  // Markdown reads (`**Hello **world` keeps its asterisks; an empty `****` is a horizontal rule).
+  const frames: string[][] = [];
+  const written: string[] = [];
   let markdown = "";
   let inPre = false;
   let inCode = false;
   let inHeading = false;
-  // A `<br>` is a hard line break only when inline content follows it in the same block; the
-  // editor also leaves one as the sole content of an empty paragraph.
-  let pendingBreak = false;
+  // Space and `<br>`s since the last content, written only once more content follows: the editor
+  // leaves a `<br>` as the sole content of an empty paragraph.
+  let space = false;
+  let breaks = 0;
 
-  // Inline content is about to be written: first the line break waiting for it, then `lead` (a
-  // space that stays outside any emphasis), then the emphasis waiting for content.
-  const beginInline = (lead = "") => {
-    markdown += (pendingBreak ? "\\\n" : "") + lead;
-    pendingBreak = false;
-    for (const frame of emphasis) {
-      if (!frame.open) markdown += frame.markers.join("");
-      frame.open = true;
+  const closeTo = (depth: number) => {
+    while (written.length > depth) markdown += written.pop();
+  };
+  // Inline content is about to be written: close the emphasis it lacks, write the space or breaks
+  // before it, then open the emphasis it gains.
+  const beginInline = () => {
+    const wanted = [...new Set(frames.flat())];
+    let kept = 0;
+    while (kept < written.length && wanted.includes(written[kept])) kept++;
+    closeTo(kept);
+    markdown += breaks ? "\\\n".repeat(breaks) : space ? " " : "";
+    space = false;
+    breaks = 0;
+    for (const marker of wanted) {
+      if (written.includes(marker)) continue;
+      written.push(marker);
+      markdown += marker;
     }
   };
-  const endEmphasis = () => {
-    const frame = emphasis.pop();
-    if (!frame?.open) return;
-    const close = frame.markers.toReversed().join("");
-    markdown = markdown.replace(/\s*$/, (space) => close + space);
+  const endBlock = () => {
+    closeTo(0);
+    space = false;
+    breaks = 0;
   };
 
   for (const token of tokens) {
@@ -54,10 +65,11 @@ export function htmlToMarkdown(html: string): string {
       else if (inCode) markdown += text.replace(/\s+/g, " ");
       else {
         const words = text.replace(/\s+/g, " ").replace(/([\\*_[\]])/g, "\\$1");
-        if (!words.trim()) markdown += words;
-        else {
-          beginInline(words.startsWith(" ") ? " " : "");
-          markdown += words.trimStart();
+        space ||= words.startsWith(" ");
+        if (words.trim()) {
+          beginInline();
+          markdown += words.trim();
+          space = words.endsWith(" ");
         }
       }
       continue;
@@ -69,14 +81,13 @@ export function htmlToMarkdown(html: string): string {
     const closing = match[1] === "/";
     const tag = match[2].toLowerCase();
     const attributes = match[3];
-    if (BLOCK_TAGS[tag]) pendingBreak = false;
-
     const markers = emphasisOf(tag, attributes);
     if (markers) {
-      if (closing) endEmphasis();
-      else emphasis.push({ markers, open: false });
+      if (closing) frames.pop();
+      else frames.push(markers);
       continue;
     }
+    if (BLOCK_TAGS[tag]) endBlock();
 
     if (closing) {
       switch (tag) {
@@ -98,7 +109,12 @@ export function htmlToMarkdown(html: string): string {
         }
         case "code": if (!inPre) { markdown += "\x60"; inCode = false; } break;
         case "pre": markdown += "\n\x60\x60\x60\n\n"; inPre = false; break;
-        case "a": markdown += "](" + (links.pop() || "") + ")"; break;
+        case "a": {
+          const link = links.pop();
+          closeTo(link?.depth ?? written.length);
+          markdown += "](" + (link?.href ?? "") + ")";
+          break;
+        }
         case "li": if (!markdown.endsWith("\n")) markdown += "\n"; break;
         case "ul": case "ol": lists.pop(); break;
         case "td": case "th": markdown += "\t"; break;
@@ -113,11 +129,12 @@ export function htmlToMarkdown(html: string): string {
         markdown += "\n\n" + "#".repeat(Number(tag[1])) + " ";
         break;
       case "p": case "div": markdown += "\n\n"; break;
-      // A heading is one line in Markdown, so a break inside one becomes a space.
+      // A heading is one line in Markdown, and code one span, so a break in either is a space.
       case "br":
         if (inPre) markdown += "\n";
-        else if (inHeading) markdown += " ";
-        else pendingBreak = true;
+        else if (inCode) markdown += " ";
+        else if (inHeading) space = true;
+        else breaks++;
         break;
       case "code": if (!inPre) { beginInline(); markdown += "\x60"; inCode = true; } break;
       case "pre": markdown += "\n\n\x60\x60\x60\n"; inPre = true; break;
@@ -133,7 +150,11 @@ export function htmlToMarkdown(html: string): string {
           (list.type === "ol" ? list.count + ". " : "- ");
         break;
       }
-      case "a": beginInline(); links.push(readHtmlAttribute(attributes, "href")); markdown += "["; break;
+      case "a":
+        beginInline();
+        links.push({ href: readHtmlAttribute(attributes, "href"), depth: written.length });
+        markdown += "[";
+        break;
       case "img": {
         beginInline();
         const alt = readHtmlAttribute(attributes, "alt").replace(/[\\[\]]/g, "\\$&");
@@ -142,6 +163,7 @@ export function htmlToMarkdown(html: string): string {
       }
     }
   }
+  endBlock();
 
   const clean = markdown
     .replace(/[ \t]+\n/g, "\n")
