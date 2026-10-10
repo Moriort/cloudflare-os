@@ -4,7 +4,7 @@
 // The editor formats with `execCommand` under `styleWithCSS`, so the bold, italic and
 // strikethrough it applies arrive as `<span style>` rather than `<b>`, `<i>` and `<s>`; both
 // spellings export alike. Formatting Markdown has no syntax for (underline, colour, size, font,
-// alignment) is dropped and its text kept.
+// alignment) is dropped and its text kept, as is emphasis inside code, which shows text verbatim.
 
 /** Tags that end a run of inline content, and with it any line break still waiting for text. */
 const BLOCK_TAGS: Record<string, true> = Object.fromEntries([
@@ -18,27 +18,48 @@ export function htmlToMarkdown(html: string): string {
   const lists: { type: "ul" | "ol"; count: number }[] = [];
   const links: string[] = [];
   const blockquotes: number[] = [];
-  // The emphasis each open `<span>`/`<font>` began, so its closing tag can end it.
-  const styled: string[][] = [];
+  // Each open emphasis element, and whether its markers are written yet. They are written at the
+  // first content inside it and closed before any trailing space, the only placement Markdown
+  // reads: `**Hello **world` keeps its asterisks, and an empty `****` is a horizontal rule.
+  const emphasis: { markers: string[]; open: boolean }[] = [];
   let markdown = "";
   let inPre = false;
+  let inCode = false;
   let inHeading = false;
   // A `<br>` is a hard line break only when inline content follows it in the same block; the
   // editor also leaves one as the sole content of an empty paragraph.
   let pendingBreak = false;
-  const flushBreak = () => {
-    if (pendingBreak) markdown += "\\\n";
+
+  // Inline content is about to be written: first the line break waiting for it, then `lead` (a
+  // space that stays outside any emphasis), then the emphasis waiting for content.
+  const beginInline = (lead = "") => {
+    markdown += (pendingBreak ? "\\\n" : "") + lead;
     pendingBreak = false;
+    for (const frame of emphasis) {
+      if (!frame.open) markdown += frame.markers.join("");
+      frame.open = true;
+    }
+  };
+  const endEmphasis = () => {
+    const frame = emphasis.pop();
+    if (!frame?.open) return;
+    const close = frame.markers.toReversed().join("");
+    markdown = markdown.replace(/\s*$/, (space) => close + space);
   };
 
   for (const token of tokens) {
     if (!token.startsWith("<")) {
-      let text = decodeHtml(token);
-      if (!inPre) {
-        text = text.replace(/\s+/g, " ").replace(/([\\*_[\]])/g, "\\$1");
-        if (text.trim()) flushBreak();
+      const text = decodeHtml(token);
+      if (inPre) markdown += text;
+      else if (inCode) markdown += text.replace(/\s+/g, " ");
+      else {
+        const words = text.replace(/\s+/g, " ").replace(/([\\*_[\]])/g, "\\$1");
+        if (!words.trim()) markdown += words;
+        else {
+          beginInline(words.startsWith(" ") ? " " : "");
+          markdown += words.trimStart();
+        }
       }
-      markdown += text;
       continue;
     }
     if (token.startsWith("<!--") || token.startsWith("<!")) continue;
@@ -49,7 +70,13 @@ export function htmlToMarkdown(html: string): string {
     const tag = match[2].toLowerCase();
     const attributes = match[3];
     if (BLOCK_TAGS[tag]) pendingBreak = false;
-    else if (!closing && tag !== "br") flushBreak();
+
+    const markers = emphasisOf(tag, attributes);
+    if (markers) {
+      if (closing) endEmphasis();
+      else emphasis.push({ markers, open: false });
+      continue;
+    }
 
     if (closing) {
       switch (tag) {
@@ -69,11 +96,7 @@ export function htmlToMarkdown(html: string): string {
           markdown = markdown.slice(0, start) + quoted + "\n\n";
           break;
         }
-        case "strong": case "b": markdown += "**"; break;
-        case "em": case "i": markdown += "*"; break;
-        case "s": case "strike": case "del": markdown += "~~"; break;
-        case "span": case "font": markdown += (styled.pop() ?? []).toReversed().join(""); break;
-        case "code": if (!inPre) markdown += "\x60"; break;
+        case "code": if (!inPre) { markdown += "\x60"; inCode = false; } break;
         case "pre": markdown += "\n\x60\x60\x60\n\n"; inPre = false; break;
         case "a": markdown += "](" + (links.pop() || "") + ")"; break;
         case "li": if (!markdown.endsWith("\n")) markdown += "\n"; break;
@@ -96,16 +119,7 @@ export function htmlToMarkdown(html: string): string {
         else if (inHeading) markdown += " ";
         else pendingBreak = true;
         break;
-      case "strong": case "b": markdown += "**"; break;
-      case "em": case "i": markdown += "*"; break;
-      case "s": case "strike": case "del": markdown += "~~"; break;
-      case "span": case "font": {
-        const markers = styleMarkers(readHtmlAttribute(attributes, "style"));
-        styled.push(markers);
-        markdown += markers.join("");
-        break;
-      }
-      case "code": if (!inPre) markdown += "\x60"; break;
+      case "code": if (!inPre) { beginInline(); markdown += "\x60"; inCode = true; } break;
       case "pre": markdown += "\n\n\x60\x60\x60\n"; inPre = true; break;
       case "blockquote": markdown += "\n\n"; blockquotes.push(markdown.length); break;
       case "hr": markdown += "\n\n---\n\n"; break;
@@ -119,8 +133,9 @@ export function htmlToMarkdown(html: string): string {
           (list.type === "ol" ? list.count + ". " : "- ");
         break;
       }
-      case "a": links.push(readHtmlAttribute(attributes, "href")); markdown += "["; break;
+      case "a": beginInline(); links.push(readHtmlAttribute(attributes, "href")); markdown += "["; break;
       case "img": {
+        beginInline();
         const alt = readHtmlAttribute(attributes, "alt").replace(/[\\[\]]/g, "\\$&");
         markdown += "![" + alt + "](" + readHtmlAttribute(attributes, "src") + ")";
         break;
@@ -135,14 +150,21 @@ export function htmlToMarkdown(html: string): string {
   return clean ? clean + "\n" : "";
 }
 
-/** The Markdown emphasis an inline `style` declares, in the order it opens. */
-function styleMarkers(style: string): string[] {
-  const declarations = style.toLowerCase();
-  const markers: string[] = [];
-  if (/font-weight\s*:\s*(bold|bolder|[6-9]00)\b/.test(declarations)) markers.push("**");
-  if (/font-style\s*:\s*(italic|oblique)\b/.test(declarations)) markers.push("*");
-  if (/text-decoration(-line)?\s*:[^;]*line-through/.test(declarations)) markers.push("~~");
-  return markers;
+/** The Markdown emphasis an inline element opens, in order, or undefined for any other element. */
+function emphasisOf(tag: string, attributes: string): string[] | undefined {
+  switch (tag) {
+    case "strong": case "b": return ["**"];
+    case "em": case "i": return ["*"];
+    case "s": case "strike": case "del": return ["~~"];
+    case "span": case "font": {
+      const style = readHtmlAttribute(attributes, "style").toLowerCase();
+      const markers: string[] = [];
+      if (/font-weight\s*:\s*(bold|bolder|[6-9]00)\b/.test(style)) markers.push("**");
+      if (/font-style\s*:\s*(italic|oblique)\b/.test(style)) markers.push("*");
+      if (/text-decoration(-line)?\s*:[^;]*line-through/.test(style)) markers.push("~~");
+      return markers;
+    }
+  }
 }
 
 function readHtmlAttribute(source: string, name: string): string {
