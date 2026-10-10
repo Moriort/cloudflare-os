@@ -487,8 +487,13 @@ function designLanded(
     // reads as "picture", so one a collaborator set would pass for the batch's own.
     if (change.op === "setBackground") {
       witness(held => {
-        let background = backgroundOf(held.pageProperties?.pageBackgroundFill) ?? "inherited";
-        return background === "picture" ? undefined : background;
+        let fill = held.pageProperties?.pageBackgroundFill;
+        let background = backgroundOf(fill) ?? "inherited";
+        if (background === "picture") return undefined;
+        if (background === "none" || background === "inherited") return background;
+        // A read of the background leaves out its opacity, which tells the batch's opaque fill from
+        // a translucent one of the same colour. Google omits an opacity of 1.
+        return `${background} ${fill?.solidFill?.alpha ?? 1}`;
       });
     }
     if (change.op === "setThemeColors") {

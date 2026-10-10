@@ -1486,6 +1486,24 @@ describe("Google Slides backgrounds and theme", () => {
     expect(provider.batches).toHaveLength(2);
   });
 
+  // A read of the background shows the colour alone, so the opacity has to tell the two apart.
+  it.each([
+    { name: "slide", target: { slideId: "s1" }, page: (d: RestPresentation) => d.slides![0] },
+    { name: "layout", target: { layoutId: "layout-title" }, page: (d: RestPresentation) => d.layouts![0] },
+    { name: "master", target: { masterId: "master-1" }, page: (d: RestPresentation) => d.masters![0] },
+  ])("records an unknown outcome for a dropped $name background when a collaborator sets its colour translucent", async ({ target, page }) => {
+    let provider = new SlidesProvider(deck()).install();
+    let slides = gatekeeper();
+    let { actionId } = await slides.queued("updateSlides", [background(target, "#ff0000")]);
+    dropNextWrite(provider, d => {
+      let translucent = { ...RED, solidFill: { ...RED.solidFill, alpha: 0.5 } };
+      page(d).pageProperties = { ...page(d).pageProperties, pageBackgroundFill: translucent };
+    });
+
+    expect(await slides.apply(actionId!)).toContain("may or may not have taken effect");
+    expect(provider.batches).toHaveLength(2);
+  });
+
   it("records an unknown outcome for a dropped reset on a slide a collaborator then deleted", async () => {
     let provider = new SlidesProvider(deck()).install();
     provider.slide("s2").pageProperties = { pageBackgroundFill: RED };
