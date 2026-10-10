@@ -1471,6 +1471,8 @@ type GoogleDocSimulatedContentCache = {
 
 type GoogleDocSimulationCacheHolder = {
   current?: GoogleDocSimulatedContentCache;
+  /** Writes landed in the document, counted so a read awaiting Google across one can tell. */
+  writes: number;
 }
 
 function googleDocPendingFingerprint(pending: GoogleDocPendingAction[]): string {
@@ -1744,7 +1746,7 @@ const EDIT_DOCUMENT_ACTION: ActionKind = {
 export class GoogleDocGatekeeperImpl
     extends DurableObject<Env, GoogleDocGatekeeperImplProps>
     implements Gatekeeper<GoogleDocSession> {
-  #simulationCache: GoogleDocSimulationCacheHolder = {};
+  #simulationCache: GoogleDocSimulationCacheHolder = { writes: 0 };
 
   // Serialize applying and rejecting actions, and creating the document, against each other. Every
   // network await below leaves the Durable Object's input gate open, and one action id can arrive
@@ -1814,7 +1816,8 @@ export class GoogleDocGatekeeperImpl
    *
    * The cached snapshot goes with it. That snapshot predates this write, and once the action stops
    * being pending nothing overlays it, so a read interleaving with the cleanup below would report
-   * content older than what is already committed.
+   * content older than what is already committed. A read already awaiting Google sees the write
+   * counted and fetches again rather than cache what it got.
    */
   #handoffDocWriteReceipt(
     actionId: number,
@@ -1829,6 +1832,7 @@ export class GoogleDocGatekeeperImpl
       this.ctx.storage.kv.put(DOC_WRITE_RECEIPT_KEY, { actionId, markerId });
       this.ctx.storage.kv.delete(DOC_SNAPSHOT_KEY);
       pendingActions.remove(actionId);
+      this.#simulationCache.writes++;
     });
   }
 
@@ -1991,14 +1995,11 @@ export class GoogleDocGatekeeperImpl
     }
     this.#simulationCache.current = undefined;
 
-    // The edit changed the document, so the snapshot read before it is stale. Only edits queued
-    // behind this one need the new revision now, to be replayed over it; otherwise the next read
-    // fetches it, and an approval that nobody reads after costs no full document read.
+    // The handoff dropped the snapshot this edit made stale. Only edits queued behind it need the
+    // new revision now, to be replayed over it; otherwise the next read fetches it, and an approval
+    // that nobody reads after costs no full document read.
     let later = pending.slice(pendingIndex + 1).filter(record => !record.action.invalidatedReason);
-    if (writeMarkerId && later.length === 0) {
-      await this.ctx.storage.delete(DOC_SNAPSHOT_KEY);
-      return;
-    }
+    if (writeMarkerId && later.length === 0) return;
     try {
       let refreshedSnapshot = snapshot;
       if (writeMarkerId) {
@@ -2091,24 +2092,23 @@ class GoogleDocSessionImpl extends RpcTarget implements GoogleDocSession {
   }
 
   async #getSnapshot(): Promise<GoogleDocSnapshot> {
-    // A snapshot written before tabs existed has no tab list and is simply replaced.
-    let cached = await this.#storage.get<unknown>(DOC_SNAPSHOT_KEY);
-    if (isGoogleDocSnapshot(cached)) {
-      if (Date.now() - cached.fetchedAt < DOC_SNAPSHOT_TTL_MS) {
+    for (;;) {
+      let writes = this.#simulationCache.writes;
+      // A snapshot written before tabs existed has no tab list and is simply replaced.
+      let cached = await this.#storage.get<unknown>(DOC_SNAPSHOT_KEY);
+      if (isGoogleDocSnapshot(cached) && Date.now() - cached.fetchedAt < DOC_SNAPSHOT_TTL_MS) {
         return cached;
       }
-      if (await googleDocRevisionUnchanged(this.#docsApi, this.#documentId, cached)) {
-        cached.fetchedAt = Date.now();
-        await this.#storage.put(DOC_SNAPSHOT_KEY, cached);
-        return cached;
-      }
+      let snapshot = isGoogleDocSnapshot(cached) &&
+          await googleDocRevisionUnchanged(this.#docsApi, this.#documentId, cached)
+        ? { ...cached, fetchedAt: Date.now() }
+        : googleDocSnapshot(await this.#docsApi.getDocument(this.#documentId));
+      // What Google returned before a write landed is stale: the edit is no longer pending to be
+      // replayed over it, so it would read as missing, and edits queued after it could not replay.
+      if (writes !== this.#simulationCache.writes) continue;
+      await this.#storage.put(DOC_SNAPSHOT_KEY, snapshot);
+      return snapshot;
     }
-
-    // Fetch full document and build snapshot.
-    let doc = await this.#docsApi.getDocument(this.#documentId);
-    let snapshot = googleDocSnapshot(doc);
-    await this.#storage.put(DOC_SNAPSHOT_KEY, snapshot);
-    return snapshot;
   }
 
   /**
