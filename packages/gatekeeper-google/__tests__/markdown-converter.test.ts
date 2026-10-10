@@ -332,6 +332,17 @@ describe("docTabToMarkdown", () => {
     expect(requests.find(request => "insertText" in request)?.insertText.text).toBe("😁");
   });
 
+  // The contract agents are given: a line break within a paragraph is U+000B, read and written.
+  it("reads and writes a line break within a paragraph as U+000B", () => {
+    let snapshot = docTabToMarkdown(buildTab([{ runs: ["Line one\u000bline two\n"] }]));
+    expect(snapshot.markdown).toBe("Line one\u000bline two\n");
+
+    let { requests } = computeReplaceOperations(
+      snapshot.sourceMap, snapshot.markdown, 0, snapshot.markdown.length - 1, "A\u000bB", TAB_ID,
+    );
+    expect(requests.find(request => "insertText" in request)?.insertText.text).toBe("A\u000bB");
+  });
+
   it("carries the tab's identity, position and body end index through", () => {
     let snapshot = docTabToMarkdown({
       ...buildTab([{ runs: ["abc\n"] }]),
