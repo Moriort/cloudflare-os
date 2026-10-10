@@ -307,6 +307,31 @@ describe("docTabToMarkdown", () => {
     expect(requests.some(request => "deleteParagraphBullets" in request)).toBe(false);
   });
 
+  // The level Google's live API returns for a BULLET_CHECKBOX list: a placeholder glyph type, no
+  // symbol. It was read as a numbered list.
+  it("renders a checklist as a bulleted list, in the body and in a cell", () => {
+    let checklist: Parameters<typeof buildTab>[1] = {
+      todo: { listProperties: { nestingLevels: [{ glyphType: "GLYPH_TYPE_UNSPECIFIED" }] } },
+    };
+    let paragraphs = [{ runs: ["Task\n"], bullet: { listId: "todo" } }];
+
+    expect(docTabToMarkdown(buildTab(paragraphs, checklist)).markdown).toBe("- Task\n");
+    expect(docTabToMarkdown(cellTab(paragraphs, checklist)).markdown).toContain("<ul>");
+  });
+
+  // 😀 and 😁 share their high surrogate; Google rejects a delete covering only the low one.
+  it("replaces a whole emoji when the new one shares its high surrogate", () => {
+    let snapshot = docTabToMarkdown(buildTab([{ runs: ["Smile 😀 now\n"] }]));
+    let start = snapshot.markdown.indexOf("😀");
+    let { requests } = computeReplaceOperations(
+      snapshot.sourceMap, snapshot.markdown, start, start + "😀".length, "😁", TAB_ID,
+    );
+
+    expect(requests.find(request => "deleteContentRange" in request)?.deleteContentRange.range)
+      .toMatchObject({ startIndex: 7, endIndex: 9 });
+    expect(requests.find(request => "insertText" in request)?.insertText.text).toBe("😁");
+  });
+
   it("carries the tab's identity, position and body end index through", () => {
     let snapshot = docTabToMarkdown({
       ...buildTab([{ runs: ["abc\n"] }]),

@@ -239,6 +239,29 @@ Google's reply and that record being written, or a creation rejected after an ap
 success was lost. Every created file's ID is logged (`google.creation.file.created`), so an orphan
 can be found.
 
+## Google Docs against the live API
+
+The workerd suite drives the Google Doc session against a model of the Docs API.
+`__tests__/live/google-docs-live.test.ts` drives the same session against the real one: it builds
+documents with Google's own requests (styles, nested and numbered lists, checklists, a table, a
+page break), checks the Markdown they read as, applies each kind of edit and checks what Google
+then holds (including the underline, colour and checklist kind Markdown cannot show), and pins the
+provider requests each operation makes. Run it with an access token holding the `documents` and
+`drive.file` scopes (the OAuth Playground issues one):
+
+```sh
+GOOGLE_DOCS_LIVE_TOKEN_FILE=/path/to/token pnpm --filter @gadgets/google-gatekeeper test:live
+```
+
+Without the variable every test is skipped. The suite creates its documents in the token's My
+Drive and deletes them afterwards.
+
+A read costs one full `documents.get`, replayed for 10 seconds and then revalidated by a
+revision-only `get`. Queuing an edit costs nothing more. Applying one costs a full `get` (the
+edit is materialized against the current revision), the `batchUpdate` carrying the edit and its
+write marker, and a second `batchUpdate` removing the marker; the document is reread after it only
+when more edits are queued behind it, since they must be replayed over the new revision.
+
 ## Known limitations
 
 Very large Google Docs can exceed Durable Objects' 2 MB value limit after Markdown conversion,

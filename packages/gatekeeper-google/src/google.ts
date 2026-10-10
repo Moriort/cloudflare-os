@@ -1991,6 +1991,14 @@ export class GoogleDocGatekeeperImpl
     }
     this.#simulationCache.current = undefined;
 
+    // The edit changed the document, so the snapshot read before it is stale. Only edits queued
+    // behind this one need the new revision now, to be replayed over it; otherwise the next read
+    // fetches it, and an approval that nobody reads after costs no full document read.
+    let later = pending.slice(pendingIndex + 1).filter(record => !record.action.invalidatedReason);
+    if (writeMarkerId && later.length === 0) {
+      await this.ctx.storage.delete(DOC_SNAPSHOT_KEY);
+      return;
+    }
     try {
       let refreshedSnapshot = snapshot;
       if (writeMarkerId) {
@@ -2000,7 +2008,7 @@ export class GoogleDocGatekeeperImpl
       invalidateUnreplayableGoogleDocActions(
           pendingActions,
           refreshedSnapshot,
-          pending.slice(pendingIndex + 1),
+          later,
           `Pending Google Doc edits could not be replayed after edit ${actionId} was applied`);
     } catch (error) {
       logger.warn("failed to refresh Google Doc simulation after applying action", {
