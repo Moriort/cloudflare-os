@@ -520,12 +520,16 @@ function atSizedCaret(): boolean {
     selection.focusNode === caretSize.node && selection.focusOffset === caretSize.offset;
 }
 
-/** Give the run the browser just opened for typed text at a sized caret its picked size. */
+/**
+ * Give the run the browser just opened for typed text at a sized caret its picked size. A typed
+ * space can land as U+00A0, which the browser uses to keep it from collapsing.
+ */
 function sizeTypedRun(typed: string | null) {
   const pt = caretSize!.pt;
   caretSize = null;
   const run = window.getSelection()?.focusNode?.parentElement;
-  if (!run || run === editor || !editor.contains(run) || run.textContent !== typed) return;
+  if (!run || run === editor || !editor.contains(run)) return;
+  if (run.textContent?.replaceAll("\u00a0", " ") !== typed) return;
   if (run.style.fontSize !== "xxx-large" && run.getAttribute("size") !== "7") return;
   run.removeAttribute("size");
   run.style.fontSize = pt + "pt";
