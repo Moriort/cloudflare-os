@@ -487,24 +487,28 @@ export class UserAccount extends DurableObject<Env> {
   }
 
   /**
-   * The X user this connection is pinned to, read again from X once it is a day old. A failed
-   * re-read serves the stored copy, and a re-read naming another user is ignored: the pin never
-   * moves.
+   * The X user this connection is pinned to, read again from X once it is a day old, or once older
+   * than `maxAgeMs` for a caller that needs it recent. A failed re-read serves the stored copy, except
+   * to a caller that asked for a recent one, and a re-read naming another user is ignored: the pin
+   * never moves.
    */
-  async getIdentity(): Promise<StoredIdentity> {
+  async getIdentity(options?: { maxAgeMs?: number }): Promise<StoredIdentity> {
     const stored = this.ctx.storage.kv.get<StoredIdentity>("identity");
     if (stored === undefined) throw new Error(RECONNECT_MESSAGE);
-    if (Date.now() - stored.fetchedAt < IDENTITY_TTL_MS) return stored;
+    const recent = options?.maxAgeMs !== undefined;
+    if (Date.now() - stored.fetchedAt < (options?.maxAgeMs ?? IDENTITY_TTL_MS)) return stored;
     try {
       const { creds } = await this.#creds.snapshot(this.#refresh, { notify: this.#notify });
       const fresh = await fetchIdentity(creds.accessToken);
       if (fresh.id !== stored.id) {
         logger.error("X identity changed under a pinned connection", { event: "x.identity.changed" });
+        if (recent) throw new Error("X described another account than the one this connection is pinned to.");
         return stored;
       }
       this.ctx.storage.kv.put<StoredIdentity>("identity", fresh);
       return fresh;
     } catch (error) {
+      if (recent) throw error;
       logger.warn("failed to refresh the X identity", { event: "x.identity.refresh.failed", error });
       return stored;
     }

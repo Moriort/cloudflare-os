@@ -42,6 +42,12 @@ export const USER_TTL_MS = 60 * 60 * 1000;
 export const LIST_TTL_MS = 15 * 60 * 1000;
 /** How long a listing's newest page stays cached, absorbing a gadget polling it. */
 export const PAGE_TTL_MS = 60 * 1000;
+/**
+ * How old the privacy a fresh read is judged by may be: the connected account's protection, or a
+ * List's. X allows 75 identity or List lookups per 15 minutes, too few to look again for every page or
+ * profile, so a minute, as long as a listing page is cached.
+ */
+export const PRIVACY_TTL_MS = 60 * 1000;
 /** Listings' default page size. */
 export const DEFAULT_PAGE_SIZE = 20;
 /** Listings' largest page. */
@@ -56,8 +62,11 @@ const BASELINE: ObservationScope = { kind: "baseline" };
 
 /** What a session may ask of the gatekeeper Durable Object. */
 export type XSessionHost = {
-  /** The X user the connection is pinned to. */
-  me(): Promise<StoredIdentity>;
+  /**
+   * The X user the connection is pinned to, as X described it within `maxAgeMs` if given (else up to a
+   * day ago); one X can't describe that recently is refused.
+   */
+  me(options?: { maxAgeMs?: number }): Promise<StoredIdentity>;
   /** Runs a read as the connection, within its daily read limit; `reserve` is the rows expected. */
   read<T>(reserve: number, op: (api: XApi, me: StoredIdentity) => Promise<XEnvelope<T>>): Promise<XEnvelope<T>>;
   /** A cached value, partitioned by connection. */
@@ -223,8 +232,11 @@ type UserListing = {
   /** Whether to report each user's relationship to the connected account. */
   relationship: boolean;
   overlay(users: XUserInfo[], newestPage: boolean): XUserInfo[];
-  /** Whether the listing is private to the account (a protected account's follow graph). */
-  privateSource(me: StoredIdentity): boolean | Promise<boolean>;
+  /**
+   * Whether the listing is private to the account (a protected account's follow graph, a private
+   * List's members), asked after each page.
+   */
+  privateSource(): Promise<boolean>;
   title: string;
   describe(count: number): string;
 };
@@ -243,7 +255,7 @@ function usersCursor(ctx: SessionContext, size: number, listing: UserListing): C
         items,
         nextToken: envelope.meta?.next_token,
         observation: { title: listing.title, description: listing.describe(items.length) },
-        scope: await listing.privateSource(me) ? OWNER : BASELINE,
+        scope: await listing.privateSource() ? OWNER : BASELINE,
       };
     },
     authorize: page => gate.authorize(page.observation, page.scope),
@@ -266,10 +278,10 @@ export async function fetchPost(host: XSessionHost, id: string): Promise<PostRea
   return { info: toPostInfo(post, includes), unverified: authorsUnverified([post], includes) };
 }
 
-/** A List as X has it, with no pending action replayed: cached, unless `fresh` asks X again. */
-export async function fetchList(host: XSessionHost, id: string, { fresh = false } = {}): Promise<XListInfo> {
-  const load = () => host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS));
-  const envelope = fresh ? await load() : await host.cached(`list:${id}`, LIST_TTL_MS, load);
+/** A List as X has it, cached for up to `maxAgeMs`, with no pending action replayed. */
+export async function fetchList(host: XSessionHost, id: string, maxAgeMs = LIST_TTL_MS): Promise<XListInfo> {
+  const envelope = await host.cached(`list:${id}`, maxAgeMs,
+    () => host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS)));
   return toListInfo(requireData(envelope, "List"), indexIncludes(envelope.includes));
 }
 
@@ -307,7 +319,7 @@ export async function readUser(host: XSessionHost, target: UserTarget): Promise<
  * the List is private, or a pending change makes it so. A pending change to public lifts nothing,
  * since the List stays private on X until that change is approved.
  */
-async function readList(ctx: SessionContext, id: string, options?: { fresh?: boolean }):
+async function readList(ctx: SessionContext, id: string, maxAgeMs?: number):
     Promise<{ info: XListInfo; restricted: boolean }> {
   const { host } = ctx;
   const resolved = host.resolve(id);
@@ -316,7 +328,7 @@ async function readList(ctx: SessionContext, id: string, options?: { fresh?: boo
     if (!pending) throw new Error("No pending List has this temporary ID; it may have been rejected.");
     return { info: pending, restricted: pending.private };
   }
-  const info = await fetchList(host, resolved, options);
+  const info = await fetchList(host, resolved, maxAgeMs);
   const visible = overlayList(info, host.pending(), ref => host.resolve(ref));
   if (!visible) throw new Error("This List has been deleted.");
   return { info: visible, restricted: info.private || visible.private };
@@ -324,12 +336,31 @@ async function readList(ctx: SessionContext, id: string, options?: { fresh?: boo
 
 /**
  * Whether a page of a List's posts or members is private to the account, judged by the List as X
- * has it now: the page can be newer than a cached record of the List, which may predate its becoming
- * private on X, or through another binding of this connection, whose approval invalidates only its
- * own cache. A List already cached as private needs no second look.
+ * described it within `PRIVACY_TTL_MS`: the List as cached can be 15 minutes old, from before it became
+ * private on X or through another binding of this connection, whose approval invalidates only its own
+ * cache. One already cached as private needs no second look, and one X can't vouch for counts as
+ * private, so a page already paid for is withheld rather than lost.
  */
 async function pageRestricted(ctx: SessionContext, id: string): Promise<boolean> {
-  return (await readList(ctx, id)).restricted || (await readList(ctx, id, { fresh: true })).restricted;
+  try {
+    return (await readList(ctx, id)).restricted || (await readList(ctx, id, PRIVACY_TTL_MS)).restricted;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Whether the connected account is protected, which decides who may observe its follow graph and
+ * home timeline: as X described it within `PRIVACY_TTL_MS`, not as the identity kept for display, which
+ * can be a day old. One already known to be protected needs no second look, and one X can't vouch for
+ * counts as protected.
+ */
+async function accountProtected(host: XSessionHost): Promise<boolean> {
+  try {
+    return (await host.me()).protected || (await host.me({ maxAgeMs: PRIVACY_TTL_MS })).protected;
+  } catch {
+    return true;
+  }
 }
 
 /** Captures a draft's images for the action that will upload them once approved. */
@@ -627,7 +658,7 @@ export class XUserImpl extends RpcTarget implements XUser {
     const info = await profileInfo(this.#ctx, await readUser(this.#ctx.host, this.#target), true);
     // The relationship is one edge of the connected account's follow graph, which is private to it
     // when it is protected, as `listFollowing` and `listFollowers` treat the whole graph.
-    const restricted = info.relationship !== undefined && (await this.#ctx.host.me()).protected;
+    const restricted = info.relationship !== undefined && await accountProtected(this.#ctx.host);
     await this.#ctx.gate.authorize(
       { title: "Read an X profile", description: `Read the profile of ${who(info)}.` }, restricted ? OWNER : BASELINE);
     return info;
@@ -839,7 +870,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
       newestFirst: true,
       bounds: options,
       // Whose posts it shows is whom the account follows, private to a protected account.
-      privateSource: async () => (await this.#ctx.host.me()).protected,
+      privateSource: () => accountProtected(this.#ctx.host),
       title: "Read the X home timeline",
       describe: count => `Read ${countOf(count, "post")} from the home timeline.`,
       cacheKey: `home:${JSON.stringify(query)}`,
@@ -929,7 +960,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
       relationship: true,
       overlay: (users, newestPage) => overlayFollowing(users, host.pending(), newestPage),
       // A protected account's follow graph is visible only to its approved followers.
-      privateSource: me => me.protected,
+      privateSource: () => accountProtected(this.#ctx.host),
       title: "Read the accounts the connected account follows",
       describe: count => `Read ${countOf(count, "followed account")}.`,
     });
@@ -943,7 +974,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
       }),
       relationship: true,
       overlay: users => users,
-      privateSource: me => me.protected,
+      privateSource: () => accountProtected(this.#ctx.host),
       title: "Read the connected account's followers",
       describe: count => `Read ${countOf(count, "follower")}.`,
     });

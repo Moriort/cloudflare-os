@@ -234,22 +234,79 @@ describe("what a read discloses", () => {
     expect(await exclusions(name)).toEqual([["observer"], undefined, ["observer"]]);
   });
 
-  it("decides a List's privacy afresh for each page, as X has it then", async () => {
+  it("decides a List's privacy for each page, as X described it within a minute", async () => {
     const { x, props, name } = await observed();
+    vi.useFakeTimers({ toFake: ["Date"] });
     x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 2 });
     x.listMembers.set("77", new Set([BOB.id, CAROL.id]));
     let pages = 0;
     x.on("GET", /^\/2\/lists\/77\/members/, () => {
-      // Made private on X while the cursor is open, long before the cached List would expire.
-      if (++pages === 2) x.lists.get("77")!.private = true;
+      // Made private on X while the cursor is open, a minute after the List was last read and long
+      // before the List as cached would expire.
+      if (++pages === 2) {
+        x.lists.get("77")!.private = true;
+        vi.setSystemTime(Date.now() + 61 * 1000);
+      }
       return undefined;
     });
     unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers", { pageSize: 1 }]], { pages: 2 }));
     expect(await exclusions(name)).toEqual([undefined, ["observer"]]);
   });
 
-  it("withholds a List's rows once another binding of the connection made it private", async () => {
+  it("looks a List up at most once a minute while its posts are polled", async () => {
     const { x, props, name } = await observed();
+    x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 1 });
+    x.listMembers.set("77", new Set([BOB.id]));
+    x.post(BOB, "listed");
+    for (let poll = 0; poll < 3; poll++) {
+      unwrap(await hooks().run(name, props, [["getList", "77"], ["listPosts"]], { pages: 1 }));
+    }
+    expect(x.count("GET", /^\/2\/lists\/77(\?|$)/)).toBe(1);
+  });
+
+  it("withholds a List's page X couldn't vouch for, rather than failing it", async () => {
+    const { x, props, name } = await observed();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 1 });
+    x.listMembers.set("77", new Set([BOB.id]));
+    unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers"]], { pages: 1 }));
+    vi.setSystemTime(Date.now() + 61 * 1000);
+    x.on("GET", /^\/2\/lists\/77(\?|$)/, () => json({ title: "Too Many Requests" }, { status: 429 }));
+    const [page] = unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers"]], { pages: 1 })) as XUserInfo[][];
+    expect(page.map(user => user.username)).toEqual(["bob"]);
+    expect(await exclusions(name)).toEqual([undefined, ["observer"]]);
+  });
+
+  it("judges the follow graph by the account's protection as X described it within a minute", async () => {
+    const { x, props, name } = await observed();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    x.following.add(`${ALICE.id}:${BOB.id}`);
+    x.post(BOB, "public words");
+    unwrap(await hooks().run(name, props, [["listFollowing"]], { pages: 1 }));
+    // The account turns protected on X, while the identity kept for display stays a day old at most.
+    x.users.set(ALICE.id, { ...ALICE, protected: true });
+    vi.setSystemTime(Date.now() + 61 * 1000);
+    unwrap(await hooks().run(name, props, [["listFollowing"]], { pages: 1 }));
+    unwrap(await hooks().run(name, props, [["listFollowers"]], { pages: 1 }));
+    unwrap(await hooks().run(name, props, [["getUser", "bob"], ["getInfo"]]));
+    unwrap(await hooks().run(name, props, [["listHomeTimeline"]], { pages: 1 }));
+    expect(await exclusions(name)).toEqual([undefined, ["observer"], ["observer"], ["observer"], ["observer"]]);
+  });
+
+  it("withholds the follow graph while X can't say whether the account is protected", async () => {
+    const { x, props, name } = await observed();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    x.following.add(`${ALICE.id}:${BOB.id}`);
+    vi.setSystemTime(Date.now() + 61 * 1000);
+    x.on("GET", /^\/2\/users\/me/, () => json({ title: "Service Unavailable" }, { status: 503 }));
+    const [page] = unwrap(await hooks().run(name, props, [["listFollowing"]], { pages: 1 })) as XUserInfo[][];
+    expect(page.map(user => user.username)).toEqual(["bob"]);
+    expect(await exclusions(name)).toEqual([["observer"]]);
+  });
+
+  it("withholds a List's rows once another binding of the connection made it private, within a minute", async () => {
+    const { x, props, name } = await observed();
+    vi.useFakeTimers({ toFake: ["Date"] });
     x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 1 });
     x.listMembers.set("77", new Set([BOB.id]));
     // This binding caches the List as public.
@@ -260,6 +317,7 @@ describe("what a read discloses", () => {
     const [{ actionId }] = (await hooks().queueLog(other)).submitted;
     unwrap(await hooks().applyAction(other, props, actionId));
     expect(x.lists.get("77")!.private).toBe(true);
+    vi.setSystemTime(Date.now() + 61 * 1000);
     x.listMembers.get("77")!.add(CAROL.id);
     x.post(CAROL, "listed since");
     unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers"]], { pages: 1 }));

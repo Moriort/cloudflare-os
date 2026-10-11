@@ -736,10 +736,13 @@ Each read is classified before it is authorized:
   privacy's absence: a post whose author X did not expand, or expanded without `protected` (a
   200 can omit expansions it failed to hydrate), counts as a protected account's, as does a
   connected account whose identity X returned without it; a List X returned without `private`
-  counts as private. A page of a List's posts or members is judged by the List as X has it when
-  the page is read, not as cached: the cached List can predate its becoming private, on X or
-  through another binding, whose approval invalidates only its own cache. One cached as private
-  needs no second look.
+  counts as private. What decides a fresh read's privacy is at most a minute old
+  (`PRIVACY_TTL_MS`): a List's posts and members are judged by the List as X described it within
+  the minute, not as cached (up to 15 minutes, per binding: an approval invalidates only its own
+  binding's cache), and the follow graph, relationships and home timeline by the account's
+  protection as X described it within the minute, not by the identity kept for display (up to a
+  day). X allows 75 List or identity lookups per 15 minutes, too few for every page. One already
+  private needs no second look, and one X can't vouch for counts as private.
 - **Public** otherwise: public posts, every profile (X shows protected accounts' profiles; only
   their posts are hidden), public Lists, and an unprotected account's followers and following.
 
