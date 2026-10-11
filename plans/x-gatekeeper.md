@@ -1075,10 +1075,12 @@ departed from the design above:
   (`expanded_url`, through `comparableUrl`), poll and media IDs. None sends again. More than one,
   one X dated before the send began (by its snowflake ID, to the millisecond), which may have been
   there already, or a window too full for one page ends the action with
-  `ActionOutcomeUnknownError`, since binding the wrong post would have a revert delete it. A duplicate refusal says the send made
-  nothing, so it is reconciled only against an earlier send X never confirmed, never against posts
-  that were already there; a first send refused that way fails. While a marker or thread progress
-  exists, `reject` is refused ("it may already be on X"). A terminal failure part-way through a
+  `ActionOutcomeUnknownError`, since binding the wrong post would have a revert delete it. A
+  lookup X answers with errors in place of rows settles nothing, so it fails the apply and leaves
+  the attempt for the next approval. A duplicate refusal says the send made nothing, so it is
+  reconciled only against an earlier send X never confirmed, never against posts that were
+  already there; a first send refused that way fails. While a marker or thread progress exists,
+  `reject` is refused ("it may already be on X"). A terminal failure part-way through a
   thread names the posts already published. `x.list.manage`'s creation is reconciled the same
   way, since `POST /2/lists` has no idempotency key either: against every page of the account's
   owned Lists (X cannot filter them by date), on name, description, privacy and a `created_at` in

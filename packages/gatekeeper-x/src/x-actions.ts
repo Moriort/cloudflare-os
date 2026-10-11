@@ -348,6 +348,19 @@ function unresolved(things: "posts" | "Lists"): ActionOutcomeUnknownError {
     `account's ${things} on X, then reject this action to clear it.`);
 }
 
+/**
+ * The rows of a reconciliation read. X can answer 200 with errors in place of rows, and a row it
+ * left out could be what the send made, so such an answer settles nothing: it fails the apply,
+ * leaving the attempt for the next approval to look again, rather than letting it send twice.
+ */
+function completeRows<T>(envelope: XEnvelope<T[]>, things: "posts" | "Lists"): T[] {
+  if (envelope.errors?.length) {
+    throw new Error(`X couldn't list the account's ${things} to check whether this was already sent, ` +
+      "so it wasn't sent again. Approving it again looks once more.");
+  }
+  return envelope.data ?? [];
+}
+
 /** One key per distinct content, however X rewrote its links and in whatever order it lists them. */
 function contentKey(content: SentContent): string {
   return JSON.stringify([
@@ -381,7 +394,7 @@ async function findPublished(host: XActionHost, draft: StoredDraft, replyTo: str
     text: draft.text, replyTo, links: extractUrls(draft.text), mediaIds: attempt.mediaIds ?? [],
     poll: draft.poll !== undefined,
   });
-  const matches = (envelope.data ?? []).filter(candidate => contentKey(sentContent(candidate)) === wanted);
+  const matches = completeRows(envelope, "posts").filter(candidate => contentKey(sentContent(candidate)) === wanted);
   // X dates what the send made after `at`. A match from before then may be a post that was already
   // there, so it can neither be bound nor ruled out; nor can a match on a further page.
   const earlier = matches.some(candidate => !(snowflakeTime(candidate.id) >= attempt.at));
@@ -402,7 +415,7 @@ async function matchingLists(host: XActionHost, payload: XActions["createList"])
       max_results: 100,
       pagination_token: token,
     }));
-    matches.push(...(envelope.data ?? []).filter(list => list.name === payload.name
+    matches.push(...completeRows(envelope, "Lists").filter(list => list.name === payload.name
       && (list.description ?? "") === (payload.description ?? "")
       && (list.private === true) === (payload.private === true)));
     token = envelope.meta?.next_token;

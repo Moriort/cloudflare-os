@@ -120,6 +120,25 @@ describe("publishing", () => {
     expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
   });
 
+  it("won't send a lost post again while X answers the check with errors", async () => {
+    const t = await setup();
+    // Image-only, so X's duplicate-text refusal wouldn't stop a second send.
+    await t.run([["createPost", { text: "", images: [{ data: PNG, mediaType: "image/png" }] }]]);
+    t.x.loseAnswer("POST", /^\/2\/tweets$/);
+    // X answers the next two looks at the account's posts with errors in place of rows.
+    let erroring = 2;
+    t.x.on("GET", new RegExp(`^/2/users/${ALICE.id}/tweets`), () =>
+      erroring-- > 0 ? json({ errors: [{ title: "Internal Error", type: "about:blank" }] }) : undefined);
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/couldn't list the account's posts/);
+    expect(failure(await t.apply(actionId))).toMatch(/couldn't list the account's posts/);
+    expect(postsBy(t.x, ALICE.id)).toHaveLength(1);
+    unwrap(await t.apply(actionId));
+    const posts = postsBy(t.x, ALICE.id);
+    expect(posts).toHaveLength(1);
+    expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
+  });
+
   it.each<[string, Partial<WirePost> & { text: string }, XPostDraft]>([
     ["images", { text: "https://t.co/0", attachments: { media_keys: ["3_42"] } },
       { text: "", images: [{ data: PNG, mediaType: "image/png" }] }],
@@ -353,6 +372,24 @@ describe("Lists", () => {
     const lists = [...t.x.lists.values()];
     expect(lists).toHaveLength(1);
     expect(await t.run([["getList", "~1"], ["getInfo"]])).toMatchObject({ id: lists[0].id });
+  });
+
+  it("won't create a lost List again while X answers the check with errors", async () => {
+    const t = await setup();
+    await t.run([["createList", "Friends"]]);
+    t.x.loseAnswer("POST", /^\/2\/lists$/);
+    // The look before the first create succeeds; X answers the next two with errors in place of rows.
+    let looks = 0;
+    t.x.on("GET", /\/owned_lists/, () =>
+      ++looks >= 2 && looks <= 3 ? json({ errors: [{ title: "Internal Error", type: "about:blank" }] }) : undefined);
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/couldn't list the account's Lists/);
+    expect(failure(await t.apply(actionId))).toMatch(/couldn't list the account's Lists/);
+    expect(t.x.lists.size).toBe(1);
+    unwrap(await t.apply(actionId));
+    const [list] = [...t.x.lists.values()];
+    expect(t.x.lists.size).toBe(1);
+    expect(await t.run([["getList", "~1"], ["getInfo"]])).toMatchObject({ id: list.id });
   });
 
   it("never binds a List just like it that was there before the first create", async () => {
