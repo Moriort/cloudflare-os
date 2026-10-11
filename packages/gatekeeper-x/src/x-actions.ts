@@ -425,10 +425,10 @@ function windowClosed(attempt: SendAttempt): boolean {
  * to show a new post. It fails the apply, keeping the attempt, so an approval after `conclusive`
  * looks again rather than sending a second.
  */
-function notShownYet(conclusive: number): Error {
+function notShownYet(conclusive: number, what: "post" | "List"): Error {
   const after = new Date(Math.ceil(conclusive / 60_000) * 60_000).toISOString().slice(11, 16);
-  return new Error("X doesn't show this post yet, and one it made can take a few minutes to appear, so it " +
-    `wasn't sent again. Approve it again after ${after} UTC to look once more.`);
+  return new Error(`X doesn't show this ${what} yet, and one it made can take a few minutes to appear, so it ` +
+    `wasn't ${what === "post" ? "sent" : "created"} again. Approve it again after ${after} UTC to look once more.`);
 }
 
 /**
@@ -538,7 +538,7 @@ async function publishOne(host: XActionHost, draft: StoredDraft, replyTo: string
       host.attempts.delete(attemptKey);
       return landed;
     }
-    if (!conclusive) throw notShownYet(prior.at + RECONCILE_WINDOW_MS + CLOCK_SKEW_MS);
+    if (!conclusive) throw notShownYet(prior.at + RECONCILE_WINDOW_MS + CLOCK_SKEW_MS, "post");
   }
 
   const mediaIds: string[] = [];
@@ -918,7 +918,12 @@ export const actions = defineActions<XActionHost, XActions>({
     apply: async (payload, host, ctx) => {
       const attemptKey = `${ctx.id}:0`;
       const prior = host.attempts.get(attemptKey);
+      // Judged before the look, as for a post: X can take minutes to list a new List.
+      const conclusive = prior !== undefined && windowClosed(prior);
       let createdId = prior && await findCreatedList(host, payload, prior);
+      if (createdId === undefined && prior !== undefined && !conclusive) {
+        throw notShownYet(prior.at + RECONCILE_WINDOW_MS + CLOCK_SKEW_MS, "List");
+      }
       if (createdId === undefined) {
         // Lists can share every detail, so those already there are noted before the first send.
         const existing = prior?.existing ?? (await matchingLists(host, payload)).map(list => list.id);
