@@ -22,7 +22,7 @@ export const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 export const RESERVED_FIRST_SEGMENTS: ReadonlySet<string> = new Set([
   "about", "account", "bookmarks", "communities", "compose", "download", "explore", "hashtag",
   "help", "home", "i", "intent", "jobs", "lists", "login", "logout", "messages", "notifications",
-  "premium", "privacy", "search", "settings", "share", "signup", "topics", "tos",
+  "privacy", "search", "settings", "share", "signup", "topics", "tos",
 ]);
 
 const TABS: ReadonlySet<string> = new Set(PROFILE_TABS);

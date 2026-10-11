@@ -344,7 +344,10 @@ export interface XList {
   /** Read the List's details. */
   getInfo(): Promise<XListInfo>;
 
-  /** Posts from the List's members, newest first. */
+  /**
+   * Posts from the List's members, newest first. X offers no `sinceId` here, so polling a List
+   * re-reads its newest page (cached for a minute).
+   */
   listPosts(options?: XPageOptions): Promise<Cursor<XPostInfo>>;
 
   /** The List's members. */
@@ -420,7 +423,10 @@ export interface XAccountSession {
   /** A capability for a user by numeric ID. Dispose the returned stub when done. */
   getUserById(userId: string): XUser;
 
-  /** A capability for a List, by ID or link. Dispose the returned stub when done. */
+  /**
+   * A capability for a List, by ID, link, or the temporary ID ("~N") of one waiting to be created.
+   * Dispose the returned stub when done.
+   */
   getList(idOrUrl: string): XList;
 
   /** Publish a post as the connected account. Returns the new post. */

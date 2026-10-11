@@ -32,6 +32,8 @@ describe("parseXUrl", () => {
     ["https://x.com/jack/media", "jack"],
     ["https://x.com/jack/followers?lang=en", "jack"],
     ["https://x.com/jack/verified_followers", "jack"],
+    // X's own @premium account: handles and X's pages share the first path segment.
+    ["https://x.com/premium", "premium"],
   ])("reads %s as a profile", (url, username) => {
     expect(parseXUrl(url)).toEqual({ kind: "profile", username });
   });

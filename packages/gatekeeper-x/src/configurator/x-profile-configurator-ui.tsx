@@ -8,7 +8,7 @@ const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 const RESERVED_FIRST_SEGMENTS = [
   "about", "account", "bookmarks", "communities", "compose", "download", "explore", "hashtag",
   "help", "home", "i", "intent", "jobs", "lists", "login", "logout", "messages", "notifications",
-  "premium", "privacy", "search", "settings", "share", "signup", "topics", "tos",
+  "privacy", "search", "settings", "share", "signup", "topics", "tos",
 ];
 const PROFILE_TABS = [
   "with_replies", "media", "highlights", "articles", "followers", "following", "verified_followers",

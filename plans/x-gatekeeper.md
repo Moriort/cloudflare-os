@@ -1,11 +1,10 @@
 # Plan: X (Twitter) gatekeeper — read, publish and engage on X, with every public act approved
 
-**Status: design proposal — not implemented.** The open questions were answered on 2026-10-10
-([Decisions from review](#decisions-from-review-2026-10-10)). What remains before code is review
-of §5's `types.d.ts` sketch: per the gatekeeper workflow nothing past the package skeleton is
-built until it is approved. X API facts are from docs.x.com (OpenAPI `2.170`) as retrieved
-2026-10-10; the ones the design leans on without anyone having seen them live are collected under
-[Verification](#verification).
+**Status: implemented** in `packages/gatekeeper-x` (hooks and webhooks separately). The open
+questions were answered on 2026-10-10 ([Decisions from review](#decisions-from-review-2026-10-10)),
+and where the build departed from this design, the decisions record says so. X API facts are from
+docs.x.com (OpenAPI `2.170`) as retrieved 2026-10-10; the ones the design leans on without anyone
+having seen them live are collected under [Verification](#verification).
 
 ## Goal
 
@@ -1005,7 +1004,7 @@ PR A lands the gatekeeper in reviewable layers; PR B adds hooks.
 3. **x: resources and configurators** — URL canonicalization, patterns, `getGatekeeperClassFor`,
    the four configurators; configurator tests.
 4. **x: reads, caching, observers, read limit** — the read side of every session (the Profile
-   binding is complete here), `TokenCursor` walks, `KvTtlCache`, classification +
+   binding is complete here), `XCursor` walks, `KvTtlCache`, classification +
    `ObservationGate`, verifier probes, the daily read limit; workerd read, resource and observer
    tests.
 5. **x: actions and simulation** — journal, provisional IDs, descriptions, apply / reject / revert
