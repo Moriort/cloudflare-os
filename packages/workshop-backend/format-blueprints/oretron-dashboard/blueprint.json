@@ -1,0 +1,29 @@
+{
+  "blueprintId": "oretron.dashboard",
+  "title": "Oretron Dashboard",
+  "description": "Panel de control para gestionar proyectos, leads y métricas de Oretron. Conecta con Supabase para datos en tiempo real.",
+  "output": {
+    "id": "appWindow",
+    "noun": "Dashboard",
+    "plural": "Dashboards",
+    "icon": "appWindow"
+  },
+  "author": {
+    "type": "user",
+    "name": "Oretron",
+    "id": "admin@oretron.cl"
+  },
+  "revision": 1,
+  "created": "2026-09-11T20:00:00.000Z",
+  "version": 1,
+  "lastUpdated": "2026-09-11T20:00:00.000Z",
+  "bindings": {
+    "supabase": {
+      "title": "Supabase Database",
+      "description": "Conexión a la base de datos de Oretron",
+      "type": "gatekeeper",
+      "gatekeeperName": "supabase",
+      "typeUrlPattern": "supabase://project/*"
+    }
+  }
+}
