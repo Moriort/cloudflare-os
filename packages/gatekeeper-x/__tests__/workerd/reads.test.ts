@@ -71,6 +71,19 @@ describe("account reads", () => {
     await hooks().refuseObservations(name, false);
   });
 
+  it("asks X again for a resource it answered with an error in its place", async () => {
+    const { x, props, name } = await setup();
+    let failing = true;
+    x.on("GET", /^\/2\/users\/by\/username\/bob/, () => {
+      if (!failing) return undefined;
+      failing = false;
+      return json({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] });
+    });
+    expect(failure(await hooks().run(name, props, [["getUser", "bob"], ["getInfo"]]))).toBe("X: Something went wrong.");
+    // The failed answer wasn't cached: once X recovers, the next lookup reads Bob.
+    expect(unwrap(await hooks().run(name, props, [["getUser", "bob"], ["getInfo"]]))).toMatchObject({ username: "bob" });
+  });
+
   it("serves a post from the cache within its TTL", async () => {
     const { x, props, name } = await setup();
     const post = x.post(BOB, "cached");

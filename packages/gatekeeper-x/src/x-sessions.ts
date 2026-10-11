@@ -309,10 +309,24 @@ function usersCursor(ctx: SessionContext, size: number, listing: UserListing): C
 /** A read post, and whether X left unsaid if an author it discloses is protected (`authorsUnverified`). */
 export type PostRead = { info: XPostInfo; unverified: boolean };
 
+/**
+ * Loads one resource for the cache, refusing an answer that holds an error in its place: cached, a
+ * transient one would go on being thrown for the whole TTL after X recovered. An answer with the
+ * resource and partial errors beside it is kept.
+ */
+function resourceLoad<T>(host: XSessionHost, what: string, op: (api: XApi) => Promise<XEnvelope<T>>):
+    () => Promise<XEnvelope<T>> {
+  return async () => {
+    const envelope = await host.read<T>(1, api => op(api));
+    requireData(envelope, what);
+    return envelope;
+  };
+}
+
 /** A post as X has it, cached, with no pending action replayed. */
 export async function fetchPost(host: XSessionHost, id: string): Promise<PostRead> {
   const envelope = await host.cached(`post:${id}`, POST_TTL_MS,
-    () => host.read<WirePost>(1, api => api.get<WirePost>(`/2/tweets/${id}`, POST_FIELDS)));
+    resourceLoad(host, "post", api => api.get<WirePost>(`/2/tweets/${id}`, POST_FIELDS)));
   const post = requireData(envelope, "post");
   const includes = indexIncludes(envelope.includes);
   return { info: toPostInfo(post, includes), unverified: authorsUnverified([post], includes) };
@@ -321,7 +335,7 @@ export async function fetchPost(host: XSessionHost, id: string): Promise<PostRea
 /** A List as X has it, cached for up to `maxAgeMs`, with no pending action replayed. */
 export async function fetchList(host: XSessionHost, id: string, maxAgeMs = LIST_TTL_MS): Promise<XListInfo> {
   const envelope = await host.cached(`list:${id}`, maxAgeMs,
-    () => host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS)));
+    resourceLoad(host, "List", api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS)));
   return toListInfo(requireData(envelope, "List"), indexIncludes(envelope.includes));
 }
 
@@ -348,9 +362,9 @@ export type UserTarget = { username: string } | { id: string };
 export async function readUser(host: XSessionHost, target: UserTarget): Promise<WireUser> {
   const envelope = "id" in target
     ? await host.cached(`user:${target.id}`, USER_TTL_MS,
-      () => host.read<WireUser>(1, api => api.get<WireUser>(`/2/users/${target.id}`, USER_FIELDS)))
+      resourceLoad(host, "user", api => api.get<WireUser>(`/2/users/${target.id}`, USER_FIELDS)))
     : await host.cached(`username:${target.username.toLowerCase()}`, USER_TTL_MS,
-      () => host.read<WireUser>(1, api => api.get<WireUser>(`/2/users/by/username/${target.username}`, USER_FIELDS)));
+      resourceLoad(host, "user", api => api.get<WireUser>(`/2/users/by/username/${target.username}`, USER_FIELDS)));
   return requireData(envelope, "user");
 }
 
