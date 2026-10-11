@@ -314,6 +314,21 @@ describe("publishing", () => {
     expect(posted).toMatchObject({ text: "@bob Agreed", conversation_id: root.id, referenced_tweets: [{ type: "replied_to", id: root.id }] });
   });
 
+  it("hides replies only in a conversation the account started", async () => {
+    const x = new FakeX().install();
+    const reply = (author: typeof BOB, to: WirePost) => x.post(author, "@someone hi", {
+      conversation_id: to.conversation_id, in_reply_to_user_id: to.author_id,
+      referenced_tweets: [{ type: "replied_to", id: to.id }],
+    });
+    const mine = reply(BOB, x.post(ALICE, "My thread"));
+    const theirs = reply(BOB, x.post(BOB, "Bob's thread"));
+    const t = await setup(x);
+    await t.run([["getPost", mine.id], ["hide"]]);
+    expect(failure(await t.attempt([["getPost", theirs.id], ["hide"]])))
+      .toBe("Only replies in a conversation the connected account started can be hidden.");
+    expect((await t.submitted()).map(({ description }) => description.title)).toEqual([expect.stringMatching(/^Hide/)]);
+  });
+
   it("deletes only the account's own posts", async () => {
     const t = await setup();
     const theirs = t.x.post(BOB, "not yours");

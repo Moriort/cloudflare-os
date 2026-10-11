@@ -673,7 +673,8 @@ accounts side by side.
 images; image bytes whose magic number disagrees with `mediaType`, or over 5 MB; a thread over 25
 posts; text identical to another pending post (X refuses duplicates); more than one cashtag, or
 a reply to a post that doesn't summon the account (its own, or one mentioning it or quoting one of
-its posts) -- X's rules for self-serve apps since February 2026. A parent's `reply_settings` isn't
+its posts) -- X's rules for self-serve apps since February 2026; hiding a reply in a conversation
+the account didn't start, which, auto-approved, would otherwise fail at X unseen. A parent's `reply_settings` isn't
 checked; X's refusal of it comes back at apply.
 
 **Dependencies.** A post created in this session gets a provisional ID `~N` from

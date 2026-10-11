@@ -576,9 +576,19 @@ export class XPostImpl extends RpcTarget implements XPost {
     return { id: this.#ctx.host.resolve(this.#id), info: unverified ? withProtectedAuthors(info) : info };
   }
 
+  /**
+   * The reply a hide targets. X hides replies only in a conversation the account started, and a hide
+   * may be approved without anyone looking, so any other is refused here rather than fail at X unseen.
+   */
   async #reply(): Promise<{ id: string; info: XPostInfo }> {
     const target = await this.#target();
     if (!target.info.replyTo) throw new Error("Only replies can be hidden.");
+    const { host } = this.#ctx;
+    const me = await host.me();
+    const root = host.resolve(target.info.conversationId);
+    // A conversation X hasn't seen yet starts with one of the account's pending posts.
+    const starter = isProvisional(root) ? me.id : (await fetchPost(host, root)).info.author.id;
+    if (starter !== me.id) throw new Error("Only replies in a conversation the connected account started can be hidden.");
     return target;
   }
 }

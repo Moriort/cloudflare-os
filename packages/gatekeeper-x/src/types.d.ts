@@ -284,10 +284,11 @@ export interface XPost {
   delete(): Promise<void>;
 
   /**
-   * Hide this reply. Only replies in a conversation the connected account started can be hidden.
+   * Hide this reply. Only replies in a conversation the connected account started can be hidden;
+   * any other is refused here, before it reaches the approver.
    */
   hide(): Promise<void>;
-  /** Unhide this reply. */
+  /** Unhide this reply, on the same terms as `hide`. */
   unhide(): Promise<void>;
 }
 

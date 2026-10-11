@@ -11,7 +11,7 @@ Four resource types, each its own grant:
 | Resource | Link | What it reaches |
 |---|---|---|
 | X Account | `https://x.com/settings/account` | The whole account. |
-| X Post | `https://x.com/<user>/status/<id>` | One post and its conversation: read, like, repost, bookmark, hide replies; reply where X allows it (to the account's own posts, or posts that mention or quote it). |
+| X Post | `https://x.com/<user>/status/<id>` | One post and its conversation: read, like, repost, bookmark; reply where X allows it (to the account's own posts, or posts that mention or quote it); hide replies in conversations the account started. |
 | X List | `https://x.com/i/lists/<id>` | One List's posts and members; its details and members, if the account owns it. |
 | X Profile | `https://x.com/<user>` | One user's public profile and posts. Read-only. |
 
