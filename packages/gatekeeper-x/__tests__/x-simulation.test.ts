@@ -110,6 +110,20 @@ describe("pending posts", () => {
   });
 });
 
+describe("pending follows", () => {
+  const follow = (relationship: XUserInfo["relationship"]): XAction =>
+    ({ kind: "follow", payload: { user: user("30", { relationship }), on: true } });
+
+  it("show in the account's follow lists as follows, keeping whether they follow back", () => {
+    const pendingFollow = pending(follow({ following: false, followedBy: true }));
+    expect(overlayFollowing([], pendingFollow, true)).toEqual([
+      expect.objectContaining({ id: "30", relationship: { following: true, followedBy: true } }),
+    ]);
+    const follower = user("30", { relationship: { following: false, followedBy: true } });
+    expect(overlayUser(follower, pendingFollow).relationship).toEqual({ following: true, followedBy: true });
+  });
+});
+
 describe("pending changes to existing posts", () => {
   it("drops a post a pending deletion removes, everywhere", () => {
     const deletion: XAction = { kind: "deletePost", payload: { post: { id: "10", info: post("10") } } };

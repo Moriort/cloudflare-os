@@ -265,7 +265,11 @@ export function overlayFollowing(users: readonly XUserInfo[], pending: Pending, 
   if (!newestPage) return result;
   const present = new Set(result.map(user => user.id));
   const added = [...states].filter(([id, state]) => state.on && !state.value.protected && !present.has(id))
-    .map(([, state]) => state.value).toReversed();
+    // The profile was read before the follow, so it says whether they follow back, not that it follows.
+    .map(([, { value }]) => ({
+      ...value, relationship: { following: true, followedBy: value.relationship?.followedBy ?? false },
+    }))
+    .toReversed();
   return [...added, ...result];
 }
 

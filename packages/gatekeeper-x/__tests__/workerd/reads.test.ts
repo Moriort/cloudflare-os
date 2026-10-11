@@ -401,6 +401,16 @@ describe("pending actions in reads", () => {
     expect(bob.relationship).toEqual({ following: true, followedBy: false });
   });
 
+  it("shows a pending follow in both follow lists, so it isn't staged twice", async () => {
+    const { x, props, name } = await setup();
+    x.following.add(`${BOB.id}:${ALICE.id}`);
+    unwrap(await hooks().run(name, props, [["getUser", "bob"], ["follow"]]));
+    const [followers] = unwrap(await hooks().run(name, props, [["listFollowers"]], { pages: 1 })) as XUserInfo[][];
+    expect(followers.map(user => [user.username, user.relationship])).toEqual([["bob", { following: true, followedBy: true }]]);
+    const [following] = unwrap(await hooks().run(name, props, [["listFollowing"]], { pages: 1 })) as XUserInfo[][];
+    expect(following.map(user => [user.username, user.relationship])).toEqual([["bob", { following: true, followedBy: true }]]);
+  });
+
   it("hides a post waiting for approval once its deletion is waiting too", async () => {
     const { props, name } = await setup();
     unwrap(await hooks().run(name, props, [["createPost", { text: "Second thoughts" }]]));

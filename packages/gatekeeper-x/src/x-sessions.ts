@@ -710,10 +710,11 @@ export class XUserImpl extends RpcTarget implements XUser {
   }
 
   /** The user an action targets, read to describe it to the approver: not an observation. */
+  /** The user an action targets, with its relationship, which a pending follow's row keeps. */
   async #info(): Promise<XUserInfo> {
     const user = await readUser(this.#ctx.host, this.#target);
     if (user.id === (await this.#ctx.host.me()).id) throw new Error("That is the connected account itself.");
-    return toUserInfo(user, false);
+    return toUserInfo(user, true);
   }
 }
 
@@ -987,7 +988,8 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
         ...USER_FIELDS, ...pageQuery(size, token, { min: 1, max: 100 }),
       }),
       relationship: true,
-      overlay: users => users,
+      // A follow-back gadget re-listing its followers sees the follows it has already staged.
+      overlay: users => users.map(user => overlayUser(user, this.#ctx.host.pending())),
       privateSource: () => accountProtected(this.#ctx.host),
       title: "Read the connected account's followers",
       describe: count => `Read ${countOf(count, "follower")}.`,
