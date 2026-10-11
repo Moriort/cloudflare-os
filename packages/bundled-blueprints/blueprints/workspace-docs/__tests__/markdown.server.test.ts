@@ -36,7 +36,7 @@ describe("htmlToMarkdown", () => {
       '<b><a href="https://example.com">this</a></b></p>' +
       '<p><span style="font-weight: bold;"><br></span></p>' +
       '<p><span style="text-decoration-line: line-through;"><br></span></p>',
-    )).toBe("**Hello** world, *see* **[this](https://example.com)**\n");
+    )).toBe("**Hello** world, *see* [**this**](https://example.com)\n");
   });
 
   // Bolding again what is already bold, or next to it, gives two elements for one stretch of
@@ -56,6 +56,16 @@ describe("htmlToMarkdown", () => {
       '<i>four <span style="font-style: normal;">five</span></i> ' +
       '<b style="font-weight: normal">six</b></p>',
     )).toBe("**one** two **three** *four* five six\n");
+  });
+
+  // Emphasis cannot pair across a link label's brackets (`**[one** two](…)` shows its asterisks),
+  // and the toolbar's Bold or Italic on a whole link styles the link itself.
+  it("renders a link label's emphasis on the letters that have it", () => {
+    const markdown = htmlToMarkdown(
+      '<p><b>see <a href="https://example.com">one <span style="font-weight: normal">two</span></a></b> ' +
+      '<a href="https://example.com" style="font-style: italic;">three</a></p>',
+    );
+    expect(renderedFormats(markdown), markdown).toEqual([..."bbbbbb", "", "", "", ..."iiiii"]);
   });
 
   // The editor gives each stretch of formatting one span, so bolding one range of a line and

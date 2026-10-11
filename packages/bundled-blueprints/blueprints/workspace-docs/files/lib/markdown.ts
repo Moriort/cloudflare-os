@@ -35,7 +35,7 @@ const BLOCK_TAGS: Record<string, true> = Object.fromEntries([
 export function htmlToMarkdown(html: string): string {
   const tokens = String(html).match(/<!--[\s\S]*?-->|<![^>]*>|<[^>]+>|[^<]+/g) || [];
   const lists: { type: "ul" | "ol"; count: number }[] = [];
-  const links: { href: string; depth: number }[] = [];
+  const links: string[] = [];
   const blockquotes: number[] = [];
   // What each open formatting element says about emphasis, and the markers open in the output,
   // outermost first. Markers follow the formatting rather than the elements: they open at the
@@ -63,8 +63,7 @@ export function htmlToMarkdown(html: string): string {
   };
   // Inline content is about to be written: close the emphasis it lacks, write the space or breaks
   // before it, then open the emphasis it gains.
-  const beginInline = () => {
-    const wanted = emphasisIn(frames);
+  const beginInline = (wanted = emphasisIn(frames)) => {
     let kept = 0;
     while (kept < written.length && wanted.includes(written[kept])) kept++;
     closeTo(kept);
@@ -137,12 +136,11 @@ export function htmlToMarkdown(html: string): string {
         }
         case "code": if (!inPre) { inline += "\x60"; inCode = false; } break;
         case "pre": markdown += "\n\x60\x60\x60\n\n"; inPre = false; break;
-        case "a": {
-          const link = links.pop();
-          closeTo(link?.depth ?? written.length);
-          inline += "](" + (link?.href ?? "") + ")";
+        case "a":
+          closeTo(0);
+          inline += "](" + (links.pop() ?? "") + ")";
+          frames.pop();
           break;
-        }
         case "li": if (!markdown.endsWith("\n")) markdown += "\n"; break;
         case "ul": case "ol": lists.pop(); break;
         case "td": case "th": markdown += "\t"; break;
@@ -178,9 +176,12 @@ export function htmlToMarkdown(html: string): string {
           (list.type === "ol" ? list.count + ". " : "- ");
         break;
       }
+      // Emphasis cannot pair across a link label's brackets, so the label opens and closes its
+      // own; the toolbar's Bold or Italic on a whole link styles the link itself.
       case "a":
-        beginInline();
-        links.push({ href: readHtmlAttribute(attributes, "href"), depth: written.length });
+        beginInline([]);
+        frames.push(styleEmphasis(attributes));
+        links.push(readHtmlAttribute(attributes, "href"));
         inline += "[";
         break;
       case "img": {
@@ -203,9 +204,13 @@ export function htmlToMarkdown(html: string): string {
 /** What a formatting element says about emphasis, or undefined for any other element. */
 function emphasisOf(tag: string, attributes: string): Emphasis | undefined {
   const implied = ELEMENT_EMPHASIS.get(tag);
-  if (!implied) return;
+  return implied && { ...implied, ...styleEmphasis(attributes) };
+}
+
+/** What an element's inline style says about emphasis, which overrides what its tag implies. */
+function styleEmphasis(attributes: string): Emphasis {
   const style = readHtmlAttribute(attributes, "style").toLowerCase();
-  const emphasis = { ...implied };
+  const emphasis: Emphasis = {};
   // `lighter` is relative (900 becomes a still-bold 700), so it says nothing.
   const weight = /font-weight\s*:\s*(?:(bold|bolder|[6-9]00)|normal|[1-5]00)\b/.exec(style);
   if (weight) emphasis["**"] = weight[1] !== undefined;
