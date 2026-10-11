@@ -392,6 +392,9 @@ const CLOCK_SKEW_MS = 10_000;
 /** How long after its attempt began X may date what a send created: well past our timeout. */
 const RECONCILE_WINDOW_MS = 5 * 60 * 1000;
 
+/** Rows a reconciliation read asks X for, and so reserves against the read limit: X's largest page. */
+const RECONCILE_PAGE = 100;
+
 /** Most pages of owned Lists a reconciliation reads: X lets an account own at most 1,000 Lists. */
 const MAX_OWNED_LIST_PAGES = 10;
 
@@ -470,8 +473,8 @@ function contentKey(content: SentContent): string {
  */
 async function findPublished(host: XActionHost, draft: StoredDraft, replyTo: string | undefined,
                              attempt: SendAttempt): Promise<string | undefined> {
-  const envelope = await host.read<WirePost[]>(5, (api, me) => api.get<WirePost[]>(`/2/users/${me.id}/tweets`, {
-    max_results: 100,
+  const envelope = await host.read<WirePost[]>(RECONCILE_PAGE, (api, me) => api.get<WirePost[]>(`/2/users/${me.id}/tweets`, {
+    max_results: RECONCILE_PAGE,
     start_time: xTime(new Date(attempt.at - CLOCK_SKEW_MS)),
     // Until the window has closed it runs to the present.
     ...(windowClosed(attempt) ? { end_time: xTime(new Date(attempt.at + RECONCILE_WINDOW_MS)) } : {}),
@@ -497,9 +500,9 @@ async function matchingLists(host: XActionHost, payload: XActions["createList"])
   const matches: WireList[] = [];
   let token: string | undefined;
   for (let page = 0; page < MAX_OWNED_LIST_PAGES; page++) {
-    const envelope = await host.read<WireList[]>(5, (api, me) => api.get<WireList[]>(`/2/users/${me.id}/owned_lists`, {
+    const envelope = await host.read<WireList[]>(RECONCILE_PAGE, (api, me) => api.get<WireList[]>(`/2/users/${me.id}/owned_lists`, {
       "list.fields": "created_at,description,private",
-      max_results: 100,
+      max_results: RECONCILE_PAGE,
       pagination_token: token,
     }));
     matches.push(...completeRows(envelope, "Lists").filter(list => list.name === payload.name

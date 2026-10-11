@@ -2,13 +2,14 @@
 // resumes where a failure stopped it; a send X never confirmed is reconciled rather than repeated;
 // what builds on a pending post waits for it, and falls with it.
 
+import { runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateNonce } from "@gadgets/gatekeeper-kit/connect-nonce";
 import type { ActionDescription } from "@gadgets/workshop-shared/gatekeeper";
 import type { XListInfo, XPostDraft, XPostInfo } from "../../src/types";
 import { scopesFor } from "../../src/x-env";
 import type { WirePost } from "../../src/x-normalize";
-import { ALICE, BOB, FakeX, failure, hooks, json, reconnectAs, seedAccount, snowflakeAt, unwrap } from "./fake-x";
+import { ALICE, BOB, FakeX, accountStub, failure, hooks, json, reconnectAs, seedAccount, snowflakeAt, unwrap } from "./fake-x";
 import type { GatekeeperProps, Step } from "./worker";
 
 afterEach(() => {
@@ -582,6 +583,21 @@ describe("Lists", () => {
     unwrap(await t.apply(privacy.actionId));
     unwrap(await t.revert(rename.actionId));
     expect(t.x.lists.get("5")).toMatchObject({ name: "Old", description: "before", private: true });
+  });
+
+  it("reserves the page a reconciliation reads", async () => {
+    const t = await setup();
+    await t.run([["createPost", { text: "Counted" }]]);
+    t.x.loseAnswer("POST", /^\/2\/tweets$/);
+    let reserved: number | undefined;
+    t.x.on("GET", new RegExp(`^/2/users/${ALICE.id}/tweets`), async () => {
+      reserved = await runInDurableObject(accountStub(t.userObjectId), async (_instance, state) =>
+        state.storage.kv.get<{ used: number }>("reads")?.used);
+      return undefined;
+    });
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    expect(reserved).toBe(100);
   });
 
   it("restores a List's original details though the change's first answer was lost", async () => {
