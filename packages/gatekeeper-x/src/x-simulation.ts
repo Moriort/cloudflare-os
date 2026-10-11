@@ -9,7 +9,7 @@ import type { JournalEntry } from "@gadgets/gatekeeper-kit/actions";
 import type { XListInfo, XPostInfo, XUserInfo, XUserSummary } from "./types";
 import type { StoredDraft, XAction } from "./x-actions";
 import type { StoredIdentity } from "./x-credentials";
-import { comparableText, extractMentions, extractUrls } from "./x-text";
+import { duplicateKey, extractMentions, extractUrls } from "./x-text";
 import { postUrl } from "./x-urls";
 
 /** The journal's pending entries, in submission order. */
@@ -312,13 +312,13 @@ export function overlayOwnedLists(lists: readonly XListInfo[], pending: Pending,
   return [...added, ...result];
 }
 
-/** The texts of posts waiting to publish, as `validateDraft` compares them. */
+/** The texts of posts waiting to publish, keyed as `validateDraft` compares them (`duplicateKey`). */
 export function pendingTexts(pending: Pending): Set<string> {
   const texts = new Set<string>();
   for (const { action } of pending) {
     const drafts = action.kind === "createPost" ? action.payload.drafts
       : action.kind === "reply" ? [action.payload.draft] : [];
-    for (const draft of drafts) if (draft.text.trim()) texts.add(comparableText(draft.text));
+    for (const draft of drafts) if (draft.text.trim()) texts.add(duplicateKey(draft.text));
   }
   return texts;
 }

@@ -104,6 +104,14 @@ export function comparableText(text: string): string {
 }
 
 /**
+ * A draft's text as X compares posts for duplicates: NFC, whitespace collapsed, and links kept as
+ * written. Unlike `comparableText`, it tells apart drafts that differ only in where their links point.
+ */
+export function duplicateKey(text: string): string {
+  return text.normalize("NFC").replace(/\s+/g, " ").trim();
+}
+
+/**
  * A link as written in a draft and as X records it (`expanded_url`) compare equal: X adds a scheme
  * to a bare domain, so the scheme, the host's case and trailing slashes are dropped.
  */

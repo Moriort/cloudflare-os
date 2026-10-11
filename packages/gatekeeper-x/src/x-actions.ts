@@ -31,7 +31,8 @@ import type { StoredIdentity } from "./x-credentials";
 import { VENDOR_ID } from "./x-env";
 import { sentContent, type SentContent, type WireList, type WirePost } from "./x-normalize";
 import {
-  TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, extractMentions, extractUrls, weightedLength,
+  TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, duplicateKey, extractMentions, extractUrls,
+  weightedLength,
 } from "./x-text";
 
 /** Most posts one thread may hold. */
@@ -203,7 +204,8 @@ const IMAGE_SIGNATURES: Record<string, (bytes: Uint8Array) => boolean> = {
 
 /**
  * Refuses a draft X would refuse, with a message the agent can act on.
- * @param pendingTexts Texts of posts already waiting to publish, since X refuses a duplicate.
+ * @param pendingTexts Texts of posts already waiting to publish, as `duplicateKey` keys them, since X
+ * refuses a duplicate.
  */
 export function validateDraft(draft: XPostDraft, me: StoredIdentity, pendingTexts: ReadonlySet<string>): void {
   const images = draft.images ?? [];
@@ -238,7 +240,7 @@ export function validateDraft(draft: XPostDraft, me: StoredIdentity, pendingText
       throw new Error("A poll must stay open for 5 to 10,080 minutes (7 days).");
     }
   }
-  if (text.trim() !== "" && pendingTexts.has(comparableText(text))) {
+  if (text.trim() !== "" && pendingTexts.has(duplicateKey(text))) {
     throw new Error("A post with this text is already waiting to publish, and X refuses duplicate posts.");
   }
 }

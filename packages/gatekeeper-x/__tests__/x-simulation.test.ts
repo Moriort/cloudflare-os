@@ -143,7 +143,7 @@ describe("pending changes to Lists", () => {
 });
 
 describe("pendingTexts", () => {
-  it("collects texts as duplicates are compared", () => {
-    expect([...pendingTexts(pending(thread))]).toEqual(["first", "second"]);
+  it("collects texts as duplicates are compared, links included", () => {
+    expect([...pendingTexts(pending(thread))]).toEqual(["first", "second https://a.co"]);
   });
 });

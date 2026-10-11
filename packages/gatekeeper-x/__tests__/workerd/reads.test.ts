@@ -332,6 +332,14 @@ describe("pending actions in reads", () => {
       .toEqual({ title: "Read an X List's members", description: 'Read 1 member of the List "Friends".' });
   });
 
+  it("tells drafts apart by where their links point", async () => {
+    const { props, name } = await setup();
+    unwrap(await hooks().run(name, props, [["createThread", [{ text: "https://example.com/one" }, { text: "https://example.com/two" }]]]));
+    unwrap(await hooks().run(name, props, [["createPost", { text: "Read https://example.com/three" }]]));
+    unwrap(await hooks().run(name, props, [["createPost", { text: "Read https://example.com/four" }]]));
+    expect((await hooks().queueLog(name)).submitted).toHaveLength(3);
+  });
+
   it("refuses a post X would refuse before it is queued", async () => {
     const { props, name } = await setup();
     expect(failure(await hooks().run(name, props, [["createPost", { text: "a".repeat(281) }]])))

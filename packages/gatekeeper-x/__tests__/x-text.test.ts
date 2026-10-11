@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparableText, comparableUrl, extractMentions, extractUrls, weightedLength } from "../src/x-text";
+import { comparableText, comparableUrl, duplicateKey, extractMentions, extractUrls, weightedLength } from "../src/x-text";
 
 describe("weightedLength", () => {
   it("counts Latin text one per character", () => {
@@ -69,6 +69,17 @@ describe("comparableText", () => {
 
   it("tells different texts apart", () => {
     expect(comparableText("Hello world")).not.toBe(comparableText("Hello there"));
+  });
+});
+
+describe("duplicateKey", () => {
+  it("equates drafts X would take for the same post", () => {
+    expect(duplicateKey("Same  words\n")).toBe(duplicateKey("Same words"));
+  });
+
+  it("tells apart drafts that differ only in where their links point", () => {
+    expect(duplicateKey("https://example.com/one")).not.toBe(duplicateKey("https://example.com/two"));
+    expect(duplicateKey("Read this: example.com/a")).not.toBe(duplicateKey("Read this: example.com/b"));
   });
 });
 

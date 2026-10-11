@@ -179,7 +179,10 @@ describe("validateDraft", () => {
   });
 
   it("refuses a duplicate of a post already waiting, as X refuses duplicates", () => {
-    expect(() => validateDraft(valid({ text: "Hello  world https://a.co" }), me, new Set(["Hello world"])))
+    expect(() => validateDraft(valid({ text: "Hello  world https://a.co" }), me, new Set(["Hello world https://a.co"])))
       .toThrow(/already waiting/);
+    // A different link makes a different post.
+    expect(() => validateDraft(valid({ text: "Hello world https://b.co" }), me, new Set(["Hello world https://a.co"])))
+      .not.toThrow();
   });
 });

@@ -32,7 +32,7 @@ import {
   type Pending, type PostOverlay,
 } from "./x-simulation";
 import { SNOWFLAKE, parseListRef, parsePostRef, parseUsernameRef } from "./x-urls";
-import { comparableText } from "./x-text";
+import { duplicateKey } from "./x-text";
 
 /** How long a post read stays cached. */
 export const POST_TTL_MS = 5 * 60 * 1000;
@@ -1007,7 +1007,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
     const taken = pendingTexts(host.pending());
     for (const draft of drafts) {
       validateDraft(draft, me, taken);
-      if (draft.text?.trim()) taken.add(comparableText(draft.text));
+      if (draft.text?.trim()) taken.add(duplicateKey(draft.text));
     }
     const stored: StoredDraft[] = [];
     for (const draft of drafts) stored.push(await storeDraft(this.#ctx, draft));
