@@ -71,7 +71,13 @@ export type ListTarget = { id: string; info: XListInfo };
 export type SendAttempt = { at: number; mediaIds?: string[]; existing?: string[] };
 
 /** A List's details, as an update changes and a revert restores them. */
-export type ListDetails = { name: string; description: string; private: boolean };
+export type ListDetails = {
+  /** Absent when X left it out beside errors: a field it failed to hydrate isn't known to be empty. */
+  name?: string;
+  /** Likewise; with no errors, a description X leaves out is an empty one. */
+  description?: string;
+  private: boolean;
+};
 
 /** What each kind of action stores. */
 export type XActions = {
@@ -985,9 +991,16 @@ export const actions = defineActions<XActionHost, XActions>({
       const recorded = host.previous.get(ctx.id);
       let previous = typeof recorded === "object" ? recorded : undefined;
       if (previous === undefined) {
-        const before = requireData(await host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS)), "List");
-        // Privacy X didn't report is restored as private, the safe way to be wrong.
-        previous = { name: before.name ?? "", description: before.description ?? "", private: before.private !== false };
+        const read = await host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS));
+        const before = requireData(read, "List");
+        // A field left out beside errors may have failed to hydrate. Privacy X didn't report is restored
+        // as private, the safe way to be wrong.
+        const complete = !read.errors?.length;
+        previous = {
+          ...(before.name !== undefined ? { name: before.name } : {}),
+          ...(before.description !== undefined || complete ? { description: before.description ?? "" } : {}),
+          private: before.private !== false,
+        };
         host.previous.put(ctx.id, previous);
       }
       await toggle(host, api => api.put(`/2/lists/${id}`, payload.changes), "change this List");
@@ -1120,9 +1133,11 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
     case "updateList": {
       const previous = action.payload.previous;
       if (!previous) return { message: "This List's earlier details were not recorded.", canRetry: false };
+      const { changes } = action.payload;
+      if ((changes.name !== undefined && previous.name === undefined)
+        || (changes.description !== undefined && previous.description === undefined)) return PRIOR_UNKNOWN;
       const id = listId(host, action.payload.list);
       // Only what this update changed, so undoing it doesn't undo a later change to another field.
-      const { changes } = action.payload;
       const restored = {
         ...(changes.name !== undefined ? { name: previous.name } : {}),
         ...(changes.description !== undefined ? { description: previous.description } : {}),

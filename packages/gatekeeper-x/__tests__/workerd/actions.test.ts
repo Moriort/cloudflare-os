@@ -585,6 +585,21 @@ describe("Lists", () => {
     expect(t.x.lists.get("5")).toMatchObject({ name: "Old", description: "before", private: true });
   });
 
+  it("won't revert a List's description X left out of its answer", async () => {
+    const t = await setup();
+    t.x.lists.set("5", { id: "5", name: "Old", description: "before", private: false, owner_id: ALICE.id });
+    // X describes the List without its description, which it says it failed to hydrate.
+    t.x.on("GET", /^\/2\/lists\/5(\?|$)/, () => json({
+      data: { id: "5", name: "Old", private: false, owner_id: ALICE.id },
+      errors: [{ title: "Field Authorization Error", detail: "description", resource_type: "list", resource_id: "5" }],
+    }));
+    await t.run([["getList", "5"], ["update", { description: "after" }]]);
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    expect(unwrap(await t.revert(actionId))).toMatchObject({ canRetry: false });
+    expect(t.x.lists.get("5")).toMatchObject({ description: "after" });
+  });
+
   it("reserves the page a reconciliation reads", async () => {
     const t = await setup();
     await t.run([["createPost", { text: "Counted" }]]);
