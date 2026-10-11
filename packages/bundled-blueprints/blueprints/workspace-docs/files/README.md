@@ -93,8 +93,11 @@ Pasted Google Docs/Word HTML is rebuilt into clean semantic markup. Images from 
 ## Export formats
 
 - **Markdown** exports the persisted rich-text blocks as Markdown, preserving headings, bold,
-  italic, strikethrough (whether written as tags or as the inline styles the toolbar applies),
-  links, images, lists, block quotes, code, horizontal rules and line breaks. Markdown has no
-  syntax for underline, colour, size, font or alignment, so those runs export as plain text. An
-  image exports with its `src`, which for an embedded image is its whole data URL.
+  italic, strikethrough (whether written as tags or as the inline styles the toolbar applies, with
+  an inline style overriding its tag and its ancestors, as on the page), links, images, lists,
+  block quotes, code, horizontal rules and line breaks. A paragraph whose emphasis changes inside
+  a word, where Markdown's asterisks could pair differently than written, writes its emphasis as
+  inline `<strong>`, `<em>` and `<del>` tags instead. Markdown has no syntax for underline,
+  colour, size, font or alignment, so those runs export as plain text. An image exports with its
+  `src`, which for an embedded image is its whole data URL.
 - **HTML** and **PDF** use the editor's print layout and omit editing chrome and presence UI.

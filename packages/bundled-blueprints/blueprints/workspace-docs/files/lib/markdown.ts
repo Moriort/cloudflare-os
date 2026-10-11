@@ -3,8 +3,27 @@
 //
 // The editor formats with `execCommand` under `styleWithCSS`, so the bold, italic and
 // strikethrough it applies arrive as `<span style>` rather than `<b>`, `<i>` and `<s>`; both
-// spellings export alike. Formatting Markdown has no syntax for (underline, colour, size, font,
-// alignment) is dropped and its text kept, as is emphasis inside code, which shows text verbatim.
+// spellings export alike, and as in the page the innermost element's say holds, so
+// `font-weight: normal` inside bold is plain. Formatting Markdown has no syntax for (underline,
+// colour, size, font, alignment) is dropped and its text kept, as is emphasis inside code, which
+// shows text verbatim.
+
+type Marker = "**" | "*" | "~~";
+/** What one element says about each emphasis: on, off, or (absent) nothing. */
+type Emphasis = Partial<Record<Marker, boolean>>;
+/** Emphasis turning on or off at an offset into a block's inline Markdown. */
+type EmphasisChange = { at: number; marker: Marker; open: boolean };
+
+const MARKERS: Marker[] = ["**", "*", "~~"];
+const HTML_TAGS: Record<Marker, string> = { "**": "strong", "*": "em", "~~": "del" };
+
+/** The formatting elements, with the emphasis each implies before its inline style has a say. */
+const ELEMENT_EMPHASIS = new Map<string, Emphasis>([
+  ["strong", { "**": true }], ["b", { "**": true }],
+  ["em", { "*": true }], ["i", { "*": true }],
+  ["s", { "~~": true }], ["strike", { "~~": true }], ["del", { "~~": true }],
+  ["span", {}], ["font", {}],
+]);
 
 /** Tags that end a run of inline content, closing its emphasis and dropping any space or break. */
 const BLOCK_TAGS: Record<string, true> = Object.fromEntries([
@@ -18,13 +37,17 @@ export function htmlToMarkdown(html: string): string {
   const lists: { type: "ul" | "ol"; count: number }[] = [];
   const links: { href: string; depth: number }[] = [];
   const blockquotes: number[] = [];
-  // The emphasis each open element asks for, and the markers open in the output. Markers follow
-  // the formatting rather than the elements: they open at the first content that has it and close
-  // at the next content or block that does not, before the space between, the only placement
-  // Markdown reads (`**Hello **world` keeps its asterisks; an empty `****` is a horizontal rule).
-  const frames: string[][] = [];
-  const written: string[] = [];
+  // What each open formatting element says about emphasis, and the markers open in the output,
+  // outermost first. Markers follow the formatting rather than the elements: they open at the
+  // first content that has it and close at the next content or block that does not, before the
+  // space between, the only placement Markdown reads (`**Hello **world` keeps its asterisks; an
+  // empty `****` is a horizontal rule).
+  const frames: Emphasis[] = [];
+  const written: Marker[] = [];
   let markdown = "";
+  // The current block's inline content and where its emphasis changes, spelled when it ends.
+  let inline = "";
+  let changes: EmphasisChange[] = [];
   let inPre = false;
   let inCode = false;
   let inHeading = false;
@@ -34,26 +57,31 @@ export function htmlToMarkdown(html: string): string {
   let breaks = 0;
 
   const closeTo = (depth: number) => {
-    while (written.length > depth) markdown += written.pop();
+    for (const marker of written.splice(depth).reverse()) {
+      changes.push({ at: inline.length, marker, open: false });
+    }
   };
   // Inline content is about to be written: close the emphasis it lacks, write the space or breaks
   // before it, then open the emphasis it gains.
   const beginInline = () => {
-    const wanted = [...new Set(frames.flat())];
+    const wanted = emphasisIn(frames);
     let kept = 0;
     while (kept < written.length && wanted.includes(written[kept])) kept++;
     closeTo(kept);
-    markdown += breaks ? "\\\n".repeat(breaks) : space ? " " : "";
+    inline += breaks ? "\\\n".repeat(breaks) : space ? " " : "";
     space = false;
     breaks = 0;
     for (const marker of wanted) {
       if (written.includes(marker)) continue;
       written.push(marker);
-      markdown += marker;
+      changes.push({ at: inline.length, marker, open: true });
     }
   };
   const endBlock = () => {
     closeTo(0);
+    markdown += spellEmphasis(inline, changes);
+    inline = "";
+    changes = [];
     space = false;
     breaks = 0;
   };
@@ -61,14 +89,14 @@ export function htmlToMarkdown(html: string): string {
   for (const token of tokens) {
     if (!token.startsWith("<")) {
       const text = decodeHtml(token);
-      if (inPre) markdown += text;
-      else if (inCode) markdown += text.replace(/\s+/g, " ");
+      if (inPre) inline += text;
+      else if (inCode) inline += text.replace(/\s+/g, " ");
       else {
         const words = text.replace(/\s+/g, " ").replace(/([\\*_[\]])/g, "\\$1");
         space ||= words.startsWith(" ");
         if (words.trim()) {
           beginInline();
-          markdown += words.trim();
+          inline += words.trim();
           space = words.endsWith(" ");
         }
       }
@@ -81,10 +109,10 @@ export function htmlToMarkdown(html: string): string {
     const closing = match[1] === "/";
     const tag = match[2].toLowerCase();
     const attributes = match[3];
-    const markers = emphasisOf(tag, attributes);
-    if (markers) {
+    const emphasis = emphasisOf(tag, attributes);
+    if (emphasis) {
       if (closing) frames.pop();
-      else frames.push(markers);
+      else frames.push(emphasis);
       continue;
     }
     if (BLOCK_TAGS[tag]) endBlock();
@@ -107,12 +135,12 @@ export function htmlToMarkdown(html: string): string {
           markdown = markdown.slice(0, start) + quoted + "\n\n";
           break;
         }
-        case "code": if (!inPre) { markdown += "\x60"; inCode = false; } break;
+        case "code": if (!inPre) { inline += "\x60"; inCode = false; } break;
         case "pre": markdown += "\n\x60\x60\x60\n\n"; inPre = false; break;
         case "a": {
           const link = links.pop();
           closeTo(link?.depth ?? written.length);
-          markdown += "](" + (link?.href ?? "") + ")";
+          inline += "](" + (link?.href ?? "") + ")";
           break;
         }
         case "li": if (!markdown.endsWith("\n")) markdown += "\n"; break;
@@ -131,12 +159,12 @@ export function htmlToMarkdown(html: string): string {
       case "p": case "div": markdown += "\n\n"; break;
       // A heading is one line in Markdown, and code one span, so a break in either is a space.
       case "br":
-        if (inPre) markdown += "\n";
-        else if (inCode) markdown += " ";
+        if (inPre) inline += "\n";
+        else if (inCode) inline += " ";
         else if (inHeading) space = true;
         else breaks++;
         break;
-      case "code": if (!inPre) { beginInline(); markdown += "\x60"; inCode = true; } break;
+      case "code": if (!inPre) { beginInline(); inline += "\x60"; inCode = true; } break;
       case "pre": markdown += "\n\n\x60\x60\x60\n"; inPre = true; break;
       case "blockquote": markdown += "\n\n"; blockquotes.push(markdown.length); break;
       case "hr": markdown += "\n\n---\n\n"; break;
@@ -153,12 +181,12 @@ export function htmlToMarkdown(html: string): string {
       case "a":
         beginInline();
         links.push({ href: readHtmlAttribute(attributes, "href"), depth: written.length });
-        markdown += "[";
+        inline += "[";
         break;
       case "img": {
         beginInline();
         const alt = readHtmlAttribute(attributes, "alt").replace(/[\\[\]]/g, "\\$&");
-        markdown += "![" + alt + "](" + readHtmlAttribute(attributes, "src") + ")";
+        inline += "![" + alt + "](" + readHtmlAttribute(attributes, "src") + ")";
         break;
       }
     }
@@ -172,21 +200,89 @@ export function htmlToMarkdown(html: string): string {
   return clean ? clean + "\n" : "";
 }
 
-/** The Markdown emphasis an inline element opens, in order, or undefined for any other element. */
-function emphasisOf(tag: string, attributes: string): string[] | undefined {
-  switch (tag) {
-    case "strong": case "b": return ["**"];
-    case "em": case "i": return ["*"];
-    case "s": case "strike": case "del": return ["~~"];
-    case "span": case "font": {
-      const style = readHtmlAttribute(attributes, "style").toLowerCase();
-      const markers: string[] = [];
-      if (/font-weight\s*:\s*(bold|bolder|[6-9]00)\b/.test(style)) markers.push("**");
-      if (/font-style\s*:\s*(italic|oblique)\b/.test(style)) markers.push("*");
-      if (/text-decoration(-line)?\s*:[^;]*line-through/.test(style)) markers.push("~~");
-      return markers;
+/** What a formatting element says about emphasis, or undefined for any other element. */
+function emphasisOf(tag: string, attributes: string): Emphasis | undefined {
+  const implied = ELEMENT_EMPHASIS.get(tag);
+  if (!implied) return;
+  const style = readHtmlAttribute(attributes, "style").toLowerCase();
+  const emphasis = { ...implied };
+  // `lighter` is relative (900 becomes a still-bold 700), so it says nothing.
+  const weight = /font-weight\s*:\s*(?:(bold|bolder|[6-9]00)|normal|[1-5]00)\b/.exec(style);
+  if (weight) emphasis["**"] = weight[1] !== undefined;
+  const slant = /font-style\s*:\s*(?:(italic|oblique)|normal)\b/.exec(style);
+  if (slant) emphasis["*"] = slant[1] !== undefined;
+  // A descendant cannot lift its ancestor's line-through, so strikethrough only turns on.
+  if (/text-decoration(-line)?\s*:[^;]*line-through/.test(style)) emphasis["~~"] = true;
+  return emphasis;
+}
+
+/** The emphasis in force inside `frames`, in the order it was turned on. */
+function emphasisIn(frames: Emphasis[]): Marker[] {
+  const on = new Set<Marker>();
+  for (const frame of frames) {
+    for (const marker of MARKERS) {
+      if (frame[marker]) on.add(marker);
+      else if (frame[marker] === false) on.delete(marker);
     }
   }
+  return [...on];
+}
+
+/**
+ * A block's inline Markdown with its emphasis changes written in: as asterisks and tildes when
+ * CommonMark reads each of their runs as written, and otherwise, as where emphasis changes inside
+ * a word (`**A***B**C***`), as inline HTML tags, which Markdown passes through.
+ */
+function spellEmphasis(text: string, changes: EmphasisChange[]): string {
+  const spell = (delimiter: (change: EmphasisChange) => string) => {
+    let spelled = "";
+    let from = 0;
+    for (const change of changes) {
+      spelled += text.slice(from, change.at) + delimiter(change);
+      from = change.at;
+    }
+    return spelled + text.slice(from);
+  };
+  const markdown = spell(({ marker }) => marker);
+  if (delimitersReadAsWritten(markdown, changes)) return markdown;
+  return spell(({ marker, open }) => `<${open ? "" : "/"}${HTML_TAGS[marker]}>`);
+}
+
+/**
+ * Whether CommonMark reads each delimiter run that `changes` spelled into `markdown` as written. An
+ * opening run must be left- and not right-flanking, or it may close an earlier opener. A closing
+ * run need only be right-flanking: the opener it closes is the nearest one waiting. A run that
+ * both closes and opens cannot be read as written.
+ */
+function delimitersReadAsWritten(markdown: string, changes: EmphasisChange[]): boolean {
+  const runs: { start: number; end: number; opens: boolean; closes: boolean }[] = [];
+  let shift = 0;
+  for (const { at, marker, open } of changes) {
+    const start = at + shift;
+    shift += marker.length;
+    const run = runs.at(-1);
+    if (run?.end === start && markdown[run.start] === marker[0]) {
+      run.end += marker.length;
+      run.opens ||= open;
+      run.closes ||= !open;
+    } else {
+      runs.push({ start, end: start + marker.length, opens: open, closes: !open });
+    }
+  }
+  return runs.every(({ start, end, opens, closes }) => {
+    // Whole code points, since an emoji is a symbol and so punctuation.
+    const before = charClass(markdown.slice(Math.max(start - 2, 0), start).match(/.$/su)?.[0]);
+    const after = charClass(markdown.slice(end, end + 2).match(/^./su)?.[0]);
+    const leftFlanking = after !== "space" && (after !== "punctuation" || before !== "word");
+    const rightFlanking = before !== "space" && (before !== "punctuation" || after !== "word");
+    return opens ? !closes && leftFlanking && !rightFlanking : rightFlanking;
+  });
+}
+
+/** A character as CommonMark's flanking rules class it, where a block's edge is space. */
+function charClass(char: string | undefined): "space" | "punctuation" | "word" {
+  if (char === undefined || /\s/.test(char)) return "space";
+  return /[\p{P}\p{S}]/u.test(char) ? "punctuation" : "word";
 }
 
 function readHtmlAttribute(source: string, name: string): string {
