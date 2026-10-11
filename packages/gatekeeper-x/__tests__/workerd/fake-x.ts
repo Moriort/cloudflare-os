@@ -121,9 +121,10 @@ export class FakeX {
     const id = extra.id ?? this.id();
     // X lists the handles a post mentions among its entities.
     const mentions = [...text.matchAll(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,15})/g)].map(match => ({ username: match[1] }));
+    const entities = { ...(mentions.length > 0 ? { mentions } : {}), ...extra.entities };
     const post: WirePost = {
-      id, text, author_id: author.id, conversation_id: id, created_at: new Date().toISOString(),
-      ...(mentions.length > 0 ? { entities: { mentions } } : {}), ...extra,
+      id, text, author_id: author.id, conversation_id: id, created_at: new Date().toISOString(), ...extra,
+      ...(Object.keys(entities).length > 0 ? { entities } : {}),
     };
     this.posts.set(id, post);
     return post;
@@ -248,7 +249,10 @@ export class FakeX {
       const author = this.users.get(me)!;
       const id = this.id();
       const shortened = this.#shorten(text, `https://x.com/${author.username}/status/${id}/photo/1`, media?.media_ids);
-      const post = this.post(author, shortened.text, {
+      // As X stores it: HTML-escaped, and a reply to another account led by that account's handle.
+      const replyingTo = parent && parent.author_id !== me ? `@${this.users.get(parent.author_id ?? "")?.username} ` : "";
+      const stored = replyingTo + shortened.text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+      const post = this.post(author, stored, {
         id,
         ...(parent ? {
           conversation_id: parent.conversation_id, in_reply_to_user_id: parent.author_id,

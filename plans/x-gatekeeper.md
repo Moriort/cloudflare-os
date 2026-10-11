@@ -1081,7 +1081,9 @@ departed from the design above:
   time and the media IDs it attached) before `POST /2/tweets`; a lost answer or a 5xx leaves the
   action pending with a plain error, and the next apply first reads the account's posts dated from
   10 s before the attempt to 5 minutes after it (`max_results=100`). It binds a post only when
-  exactly one matches the draft's reply parent, `comparableText`, link destinations
+  exactly one matches the draft's reply parent, `comparableText` (with X's HTML entities turned
+  back, the punctuation after a link kept either way, and a reply's leading handles, which X adds,
+  dropped), link destinations
   (`expanded_url`, through `comparableUrl`), poll and media IDs. None sends again, but only once
   the window has closed: until then X may still be about to show the post, which nothing else
   (no duplicate-text refusal for an image-only post) would stop a second send of, so the apply

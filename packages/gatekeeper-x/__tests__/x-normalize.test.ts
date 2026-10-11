@@ -79,6 +79,11 @@ describe("toPostInfo", () => {
     expect(info.repostOf).toBeUndefined();
   });
 
+  it("reads text as written, though X sends &, < and > as HTML entities", () => {
+    expect(toPostInfo({ id: "5", text: "Q&amp;A &lt;3 &amp;lt;", author_id: "77" }, indexIncludes(undefined)).text)
+      .toBe("Q&A <3 &lt;");
+  });
+
   it("reads a post whose author X did not expand as a bare ID", () => {
     const info = toPostInfo({ id: "5", text: "hi", author_id: "77" }, indexIncludes(undefined));
     expect(info.author).toEqual({ id: "77", username: "", name: "", verified: false, protected: false });

@@ -199,8 +199,13 @@ function referenced(id: string, includes: Includes): XReferencedPost | undefined
   };
 }
 
+/**
+ * A post's whole text, a long post's from `note_tweet`. X sends `&`, `<` and `>` as HTML entities,
+ * though the text isn't HTML, so they are turned back into what was written.
+ */
 function fullText(post: WirePost): string {
-  return post.note_tweet?.text ?? post.note_post?.text ?? post.text ?? "";
+  return (post.note_tweet?.text ?? post.note_post?.text ?? post.text ?? "")
+    .replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
 function media(post: WirePost, includes: Includes): XMediaInfo[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparableText, comparableUrl, duplicateKey, extractMentions, extractUrls, weightedLength } from "../src/x-text";
+import { comparableText, comparableUrl, duplicateKey, extractMentions, extractUrls, weightedLength, withoutLeadingMentions } from "../src/x-text";
 
 describe("weightedLength", () => {
   it("counts Latin text one per character", () => {
@@ -61,7 +61,19 @@ describe("extraction", () => {
   });
 });
 
+describe("withoutLeadingMentions", () => {
+  it("drops the run of handles X leads a reply with, and nothing after it", () => {
+    expect(withoutLeadingMentions("@bob @carol Agreed, @dave")).toBe("Agreed, @dave");
+    expect(withoutLeadingMentions("Agreed")).toBe("Agreed");
+  });
+});
+
 describe("comparableText", () => {
+  it("keeps the punctuation after a link, however the link was written", () => {
+    expect(comparableText("Visit example.com.")).toBe(comparableText("Visit https://t.co/AbCdEf."));
+    expect(comparableText("See (https://example.com/a), then")).toBe(comparableText("See (https://t.co/x), then"));
+  });
+
   it("equates a draft with the post X made of it", () => {
     expect(comparableText("Hello https://example.com/page world"))
       .toBe(comparableText("Hello  https://t.co/AbCdEf   world"));

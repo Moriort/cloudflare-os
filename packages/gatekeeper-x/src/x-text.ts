@@ -51,12 +51,23 @@ function codePointWeight(codePoint: number): number {
 
 /** The links in `text`, as written. */
 export function extractUrls(text: string): string[] {
-  return [...text.matchAll(URL_PATTERN)].map(match => {
-    // A loop rather than /[.,!?;:)\]]+$/, which is quadratic in a long run of punctuation.
-    let end = match[0].length;
-    while (end > 0 && TRAILING_PUNCTUATION.has(match[0][end - 1])) end--;
-    return match[0].slice(0, end);
-  });
+  return [...text.matchAll(URL_PATTERN)].map(match => match[0].slice(0, linkEnd(match[0])));
+}
+
+/** Where a `URL_PATTERN` match's link ends, short of the sentence's punctuation after it. */
+function linkEnd(match: string): number {
+  // A loop rather than /[.,!?;:)\]]+$/, which is quadratic in a long run of punctuation.
+  let end = match.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(match[end - 1])) end--;
+  return end;
+}
+
+/**
+ * A reply's text without the run of handles at its front: X puts the ones it replies to there,
+ * whether or not the draft named them.
+ */
+export function withoutLeadingMentions(text: string): string {
+  return text.replace(/^(?:\s*@[A-Za-z0-9_]{1,15}(?![A-Za-z0-9_]))+\s*/, "");
 }
 
 /** A cashtag: "$" and one to six letters, with an optional short class suffix ("$BRK.A"). */
@@ -101,12 +112,12 @@ export function weightedLength(text: string): number {
 }
 
 /**
- * Drops links and collapses whitespace, so a draft and the post X made of it compare equal although
- * X rewrote every link into t.co form.
+ * Drops links, keeping the punctuation after each, and collapses whitespace, so a draft and the post
+ * X made of it compare equal although X rewrote every link into t.co form.
  */
 export function comparableText(text: string): string {
   return text.normalize("NFC")
-    .replace(URL_PATTERN, "")
+    .replace(URL_PATTERN, link => link.slice(linkEnd(link)))
     .replace(/\s+/g, " ")
     .trim();
 }

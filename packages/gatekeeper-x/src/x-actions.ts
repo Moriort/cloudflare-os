@@ -32,7 +32,7 @@ import { VENDOR_ID } from "./x-env";
 import { sentContent, type SentContent, type WireList, type WirePost } from "./x-normalize";
 import {
   TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, duplicateKey, extractCashtags, extractMentions, extractUrls,
-  weightedLength,
+  weightedLength, withoutLeadingMentions,
 } from "./x-text";
 
 /** Most posts one thread may hold. */
@@ -412,7 +412,7 @@ function completeRows<T>(envelope: XEnvelope<T[]>, things: "posts" | "Lists"): T
 function contentKey(content: SentContent): string {
   return JSON.stringify([
     content.replyTo ?? null,
-    comparableText(content.text),
+    comparableText(content.replyTo ? withoutLeadingMentions(content.text) : content.text),
     content.links.map(comparableUrl).toSorted(),
     content.mediaIds.toSorted(),
     content.poll,

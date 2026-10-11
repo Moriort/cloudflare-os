@@ -209,6 +209,33 @@ describe("publishing", () => {
     expect(t.x.posts.has(earlier.id)).toBe(true);
   });
 
+  it.each([
+    ["HTML-escaped", { text: "Q&A at 5pm <3" }],
+    ["with its link shortened before a full stop", { text: "Visit example.com." }],
+  ])("binds the post a lost answer hid, though X stores its text %s", async (_how, draft) => {
+    const t = await setup();
+    await t.run([["createPost", draft]]);
+    t.x.loseAnswer("POST", /^\/2\/tweets$/);
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    const posts = postsBy(t.x, ALICE.id);
+    expect(posts).toHaveLength(1);
+    expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
+  });
+
+  it("binds the reply a lost answer hid, though X leads it with the handle it replies to", async () => {
+    const x = new FakeX().install();
+    const root = x.post(BOB, "@alice What do you think?");
+    const t = await setup(x);
+    const props: GatekeeperProps = { userObjectId: t.userObjectId, resourceKind: "post", postId: root.id };
+    const name = crypto.randomUUID();
+    unwrap(await hooks().run(name, props, [["reply", { text: "Agreed" }]]));
+    x.loseAnswer("POST", /^\/2\/tweets$/);
+    const [{ actionId }] = (await hooks().queueLog(name)).submitted;
+    unwrap(await hooks().applyAction(name, props, actionId));
+    expect(postsBy(x, ALICE.id).map(post => post.text)).toEqual(["@bob Agreed"]);
+  });
+
   it("binds the post an unconfirmed send made once X shows it, sending nothing again", async () => {
     const t = await setup();
     await t.run([["createPost", { text: "Slow to show" }]]);
@@ -284,7 +311,7 @@ describe("publishing", () => {
     expect(description.title).toBe("Reply on X to @bob as @alice");
     unwrap(await hooks().applyAction(name, props, actionId));
     const [posted] = postsBy(x, ALICE.id);
-    expect(posted).toMatchObject({ text: "Agreed", conversation_id: root.id, referenced_tweets: [{ type: "replied_to", id: root.id }] });
+    expect(posted).toMatchObject({ text: "@bob Agreed", conversation_id: root.id, referenced_tweets: [{ type: "replied_to", id: root.id }] });
   });
 
   it("deletes only the account's own posts", async () => {
