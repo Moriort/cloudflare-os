@@ -6,7 +6,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XListInfo, XPostInfo, XUserInfo } from "../../src/types";
 import { ALICE, BOB, CAROL, FakeX, accountStub, failure, hooks, json, seedAccount, unwrap } from "./fake-x";
-import type { GatekeeperProps } from "./worker";
+import type { GatekeeperProps, Step } from "./worker";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -283,6 +283,19 @@ describe("pending actions in reads", () => {
     expect(page.map(post => post.id)).toEqual(["~1"]);
     // Nothing was sent to X but reads.
     expect(x.requests.every(r => r.method === "GET")).toBe(true);
+  });
+
+  it("shows posts waiting for approval only where a listing's bounds take them in", async () => {
+    const { props, name } = await setup();
+    unwrap(await hooks().run(name, props, [["createThread", [{ text: "Draft one" }, { text: "Draft two" }]]]));
+    const later = new Date(Date.now() + 60_000);
+    const ids = async (...steps: Step[]) =>
+      (unwrap(await hooks().run(name, props, steps, { pages: 1 })) as XPostInfo[][])[0].map(post => post.id);
+    expect(await ids(["listMyPosts", { startTime: later }])).toEqual([]);
+    expect(await ids(["listMyPosts", { endTime: later }])).toEqual(["~2", "~1"]);
+    // A pending post's replies are all pending too, and the bounds hold for them as well.
+    expect(await ids(["getPost", "~1"], ["listReplies", { startTime: later }])).toEqual([]);
+    expect(await ids(["getPost", "~1"], ["listReplies", { endTime: later }])).toEqual(["~2"]);
   });
 
   it("shows a pending bookmark and follow", async () => {

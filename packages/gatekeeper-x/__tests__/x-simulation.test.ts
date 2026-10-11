@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { XListInfo, XPostInfo, XUserInfo } from "../src/types";
+import type { XListInfo, XPostInfo, XTimeRangeOptions, XUserInfo } from "../src/types";
 import type { XAction } from "../src/x-actions";
 import type { StoredIdentity } from "../src/x-credentials";
 import {
@@ -37,6 +37,9 @@ function pending(...actions: XAction[]): Pending {
 }
 
 const unresolved = (id: string) => id;
+
+/** A snowflake naming a post X made at `ms`. */
+const idAt = (ms: number) => ((BigInt(ms) - 1288834974657n) << 22n).toString();
 
 const thread: XAction = {
   kind: "createPost",
@@ -78,6 +81,22 @@ describe("pending posts", () => {
     expect(overlayPosts([], pending(reply), { kind: "replies", parentId: "51" }, context)).toEqual([]);
     expect(overlayPosts([], pending(reply), { kind: "conversation", conversationId: "50" }, context).map(item => item.id))
       .toEqual(["~3"]);
+  });
+
+  it("joins a listing only within its bounds, by when the post shows as created", () => {
+    const day = 24 * 60 * 60 * 1000;
+    const submittedAt = Date.UTC(2026, 9, 1);
+    const draft: XAction = { kind: "createPost", payload: { refs: ["~1"], drafts: [{ text: "draft" }], submittedAt } };
+    const joins = (bounds: XTimeRangeOptions) =>
+      overlayPosts([], pending(draft), { kind: "mine" }, { me, resolve: unresolved, newestPage: true, bounds }).length > 0;
+    expect(joins({ startTime: new Date(submittedAt + 9 * day) })).toBe(false);
+    expect(joins({ startTime: new Date(submittedAt) })).toBe(true);
+    expect(joins({ endTime: new Date(submittedAt + day) })).toBe(true);
+    expect(joins({ endTime: new Date(submittedAt) })).toBe(false);
+    expect(joins({ sinceId: idAt(submittedAt - day) })).toBe(true);
+    expect(joins({ sinceId: idAt(submittedAt) })).toBe(false);
+    expect(joins({ untilId: idAt(submittedAt + day) })).toBe(true);
+    expect(joins({ untilId: idAt(submittedAt) })).toBe(false);
   });
 });
 

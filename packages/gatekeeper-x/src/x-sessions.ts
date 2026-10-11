@@ -28,7 +28,7 @@ import {
 } from "./x-normalize";
 import {
   meSummary, overlayFollowing, overlayList, overlayMembers, overlayMuted, overlayOwnedLists,
-  overlayPost, overlayPosts, overlayUser, pendingList, pendingPost, pendingPosts, pendingTexts,
+  overlayPost, overlayPosts, overlayUser, pendingList, pendingPost, pendingPosts, pendingTexts, withinBounds,
   type Pending, type PostOverlay,
 } from "./x-simulation";
 import { SNOWFLAKE, parseListRef, parsePostRef, parseUsernameRef } from "./x-urls";
@@ -132,11 +132,6 @@ function excludeQuery(options: XTimelineOptions | undefined): Record<string, str
   return { exclude: exclude.length ? exclude.join(",") : undefined };
 }
 
-/** Whether a listing's first page is its newest, the page pending posts join. */
-function newestFirst(options: XTimeRangeOptions | undefined): boolean {
-  return options?.untilId === undefined && options?.endTime === undefined;
-}
-
 /**
  * The scope a read disclosing `posts` needs: the owner's when `restricted` -- a private source, or
  * authors whose privacy X did not report -- or when any post is a protected account's.
@@ -167,6 +162,8 @@ type PostListing = {
   overlay: PostOverlay;
   /** Whether pending posts may join the first page. */
   newestFirst: boolean;
+  /** The range the listing asked X for, which pending posts must fall within too. */
+  bounds?: XTimeRangeOptions;
   /**
    * Whether the source itself is private to the account, whatever its posts; asked again for each
    * page where that can change.
@@ -193,6 +190,7 @@ function postsCursor(ctx: SessionContext, size: number, listing: PostListing): C
       const fetched = wire.map(post => toPostInfo(post, includes));
       const items = overlayPosts(fetched, host.pending(), listing.overlay, {
         me, resolve: id => host.resolve(id), newestPage: token === undefined && listing.newestFirst,
+        bounds: listing.bounds,
       });
       const privateSource = typeof listing.privateSource === "function"
         ? await listing.privateSource()
@@ -397,22 +395,23 @@ export class XPostImpl extends RpcTarget implements XPost {
 
   async listReplies(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options);
+    const query = timeQuery(options);
     const { host } = this.#ctx;
     if (this.#scope) await this.#info();
     const id = host.resolve(this.#id);
     if (isProvisional(id)) {
       const me = await host.me();
       return pendingCursor(pendingPosts(host.pending(), me, ref => host.resolve(ref))
-        .filter(post => post.replyTo?.postId === id));
+        .filter(post => post.replyTo?.postId === id && withinBounds(post, options)));
     }
-    const query = timeQuery(options);
     return postsCursor(this.#ctx, size, {
       request: (api, _me, token) => api.get<WirePost[]>("/2/tweets/search/recent", {
         ...POST_FIELDS, query: `in_reply_to_tweet_id:${id}`, ...query,
         ...pageQuery(size, token, { min: 10, max: 100 }, "next_token"),
       }),
       overlay: { kind: "replies", parentId: id },
-      newestFirst: newestFirst(options),
+      newestFirst: true,
+      bounds: options,
       title: "Read replies to an X post",
       describe: count => `Read ${countOf(count, "reply", "replies")} to an X post.`,
     });
@@ -420,21 +419,22 @@ export class XPostImpl extends RpcTarget implements XPost {
 
   async listConversation(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options);
+    const query = timeQuery(options);
     const { host } = this.#ctx;
     const conversation = host.resolve(await this.#ownConversation());
     if (isProvisional(conversation)) {
       const me = await host.me();
       return pendingCursor(pendingPosts(host.pending(), me, ref => host.resolve(ref))
-        .filter(post => host.resolve(post.conversationId) === conversation));
+        .filter(post => host.resolve(post.conversationId) === conversation && withinBounds(post, options)));
     }
-    const query = timeQuery(options);
     return postsCursor(this.#ctx, size, {
       request: (api, _me, token) => api.get<WirePost[]>("/2/tweets/search/recent", {
         ...POST_FIELDS, query: `conversation_id:${conversation}`, ...query,
         ...pageQuery(size, token, { min: 10, max: 100 }, "next_token"),
       }),
       overlay: { kind: "conversation", conversationId: conversation },
-      newestFirst: newestFirst(options),
+      newestFirst: true,
+      bounds: options,
       title: "Read an X conversation",
       describe: count => `Read ${countOf(count, "post")} from an X conversation.`,
     });
@@ -557,7 +557,8 @@ async function profilePosts(ctx: SessionContext, user: WireUser, options: XTimel
     overlay: mine
       ? { kind: "mine", excludeReplies: options?.excludeReplies, excludeReposts: options?.excludeReposts }
       : { kind: "others" },
-    newestFirst: newestFirst(options),
+    newestFirst: true,
+    bounds: options,
     title: `Read ${name}'s X posts`,
     describe: count => `Read ${countOf(count, "post")} by ${name}.`,
   });
@@ -821,7 +822,8 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
         ...POST_FIELDS, ...query, ...pageQuery(size, token, { min: 1, max: 100 }),
       }),
       overlay: { kind: "others" },
-      newestFirst: newestFirst(options),
+      newestFirst: true,
+      bounds: options,
       // Whose posts it shows is whom the account follows, private to a protected account.
       privateSource: async () => (await this.#ctx.host.me()).protected,
       title: "Read the X home timeline",
@@ -838,7 +840,8 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
         ...POST_FIELDS, ...query, ...pageQuery(size, token, { min: 5, max: 100 }),
       }),
       overlay: { kind: "others" },
-      newestFirst: newestFirst(options),
+      newestFirst: true,
+      bounds: options,
       title: "Read X mentions",
       describe: count => `Read ${countOf(count, "post")} mentioning the connected account.`,
       cacheKey: `mentions:${JSON.stringify(query)}`,

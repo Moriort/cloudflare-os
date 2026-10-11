@@ -689,7 +689,7 @@ on X — approve it again, then delete it").
 
 | Pending action | Reflected in |
 |---|---|
-| create, thread, reply | `getPost("~N").getInfo()`; prepended on the first page of `listMyPosts` and of the parent's `listReplies` / `listConversation`, without slicing, so no real row is lost (Spotify's lesson) |
+| create, thread, reply | `getPost("~N").getInfo()`; prepended on the first page of `listMyPosts` and of the parent's `listReplies` / `listConversation`, without slicing, so no real row is lost (Spotify's lesson), when the listing's bounds take in the submission time (an ID bound read as the time its snowflake encodes) |
 | delete | dropped from every listing; `getInfo()` throws not-found |
 | like / unlike | `listLikedPosts` (prepend / drop) |
 | repost / undo | `listMyPosts` (a synthesized repost row / drop) |

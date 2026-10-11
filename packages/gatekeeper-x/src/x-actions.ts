@@ -336,7 +336,7 @@ const SNOWFLAKE_EPOCH_MS = 1288834974657n;
  * When X made the post a snowflake ID names, to the millisecond and by X's clock: finer than
  * `created_at`, which X reports to the second.
  */
-function snowflakeTime(id: string): number {
+export function snowflakeTime(id: string): number {
   return /^\d+$/.test(id) ? Number((BigInt(id) >> 22n) + SNOWFLAKE_EPOCH_MS) : Number.NaN;
 }
 
