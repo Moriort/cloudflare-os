@@ -1,0 +1,23 @@
+{
+  "name": "editor-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.5,
+    "logs": { "invocation_logs": false }
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "EditorSession", "class_name": "EditorSession" }]
+  },
+  "migrations": [
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EditorSession"]
+    }
+  ],
+  "vars": {
+    "MCP_PROTOCOL_VERSION": "2025-06-18"
+  }
+}
