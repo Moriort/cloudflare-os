@@ -539,6 +539,19 @@ describe("Lists", () => {
     expect(t.x.lists.get("5")).toMatchObject({ name: "Old", description: "before", private: false });
   });
 
+  it("undoes only what a List update changed, keeping a later change to another field", async () => {
+    const t = await setup();
+    t.x.lists.set("5", { id: "5", name: "Old", description: "before", private: false, owner_id: ALICE.id });
+    await t.run([["getList", "5"], ["update", { name: "New" }]]);
+    const [rename] = await t.submitted();
+    unwrap(await t.apply(rename.actionId));
+    await t.run([["getList", "5"], ["update", { private: true }]]);
+    const [, privacy] = await t.submitted();
+    unwrap(await t.apply(privacy.actionId));
+    unwrap(await t.revert(rename.actionId));
+    expect(t.x.lists.get("5")).toMatchObject({ name: "Old", description: "before", private: true });
+  });
+
   it("restores a List's original details though the change's first answer was lost", async () => {
     const t = await setup();
     t.x.lists.set("5", { id: "5", name: "Old", description: "before", private: false, owner_id: ALICE.id });

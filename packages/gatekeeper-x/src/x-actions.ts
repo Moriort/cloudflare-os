@@ -1109,7 +1109,14 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       const previous = action.payload.previous;
       if (!previous) return { message: "This List's earlier details were not recorded.", canRetry: false };
       const id = listId(host, action.payload.list);
-      await host.write(api => api.put(`/2/lists/${id}`, previous), { replayable: true });
+      // Only what this update changed, so undoing it doesn't undo a later change to another field.
+      const { changes } = action.payload;
+      const restored = {
+        ...(changes.name !== undefined ? { name: previous.name } : {}),
+        ...(changes.description !== undefined ? { description: previous.description } : {}),
+        ...(changes.private !== undefined ? { private: previous.private } : {}),
+      };
+      await host.write(api => api.put(`/2/lists/${id}`, restored), { replayable: true });
       return;
     }
     case "listMember":
