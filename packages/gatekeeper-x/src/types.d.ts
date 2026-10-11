@@ -22,7 +22,11 @@ export interface Cursor<T> {
 
 /** How many results each page of a listing holds. */
 export type XPageOptions = {
-  /** Results per page, 1–100. Defaults to 20. */
+  /**
+   * Results per page, 1–100. Defaults to 20. Some listings take a larger page however small this is,
+   * because X returns and bills its minimum: 10 for `searchPosts`, `listReplies`, `listConversation`
+   * and `listQuotes`; 5 for `listMentions`, `listMyPosts`, a user's `listPosts` and `listLikedPosts`.
+   */
   pageSize?: number;
 };
 

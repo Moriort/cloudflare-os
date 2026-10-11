@@ -113,12 +113,16 @@ function who(user: XUserSummary): string {
   return user.username ? `@${escapeObservationValue(user.username)}` : "an X user";
 }
 
-function pageSize(options: XPageOptions | undefined): number {
+/**
+ * The rows a page asks X for: the caller's page size, raised to the endpoint's `min`, below which X
+ * returns (and bills) its minimum anyway, so the read limit reserves what X will return.
+ */
+function pageSize(options: XPageOptions | undefined, min = 1): number {
   const size = options?.pageSize ?? DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(size) || size < 1 || size > MAX_PAGE_SIZE) {
     throw new Error(`pageSize must be a whole number from 1 to ${MAX_PAGE_SIZE}.`);
   }
-  return size;
+  return Math.max(min, size);
 }
 
 function snowflake(value: string | undefined, name: string): string | undefined {
@@ -439,7 +443,7 @@ export class XPostImpl extends RpcTarget implements XPost {
   }
 
   async listReplies(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
-    const size = pageSize(options);
+    const size = pageSize(options, 10);
     const query = timeQuery(options);
     const { host } = this.#ctx;
     if (this.#scope) await this.#info();
@@ -463,7 +467,7 @@ export class XPostImpl extends RpcTarget implements XPost {
   }
 
   async listConversation(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
-    const size = pageSize(options);
+    const size = pageSize(options, 10);
     const query = timeQuery(options);
     const { host } = this.#ctx;
     const conversation = host.resolve(await this.#ownConversation());
@@ -486,7 +490,7 @@ export class XPostImpl extends RpcTarget implements XPost {
   }
 
   async listQuotes(options?: XPageOptions): Promise<Cursor<XPostInfo>> {
-    const size = pageSize(options);
+    const size = pageSize(options, 10);
     if (this.#scope) await this.#info();
     const id = this.#ctx.host.resolve(this.#id);
     if (isProvisional(id)) return pendingCursor([]);
@@ -604,7 +608,7 @@ async function profileInfo(ctx: SessionContext, user: WireUser, relationship: bo
 
 async function profilePosts(ctx: SessionContext, user: WireUser, options: XTimelineOptions | undefined):
     Promise<Cursor<XPostInfo>> {
-  const size = pageSize(options);
+  const size = pageSize(options, 5);
   const me = await ctx.host.me();
   const mine = user.id === me.id;
   const query = { ...timeQuery(options), ...excludeQuery(options) };
@@ -893,7 +897,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
   }
 
   async listMentions(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
-    const size = pageSize(options);
+    const size = pageSize(options, 5);
     const query = timeQuery(options);
     return postsCursor(this.#ctx, size, {
       request: (api, me, token) => api.get<WirePost[]>(`/2/users/${me.id}/mentions`, {
@@ -916,7 +920,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
   async searchPosts(query: string, options?: XSearchOptions): Promise<Cursor<XPostInfo>> {
     if (typeof query !== "string" || query.trim() === "") throw new Error("A search query is required.");
     if (query.length > MAX_QUERY_LENGTH) throw new Error(`A search query must be at most ${MAX_QUERY_LENGTH} characters.`);
-    const size = pageSize(options);
+    const size = pageSize(options, 10);
     const sortOrder = options?.sortOrder;
     if (sortOrder !== undefined && sortOrder !== "recency" && sortOrder !== "relevancy") {
       throw new Error('sortOrder must be "recency" or "relevancy".');
@@ -951,7 +955,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
   }
 
   async listLikedPosts(options?: XPageOptions): Promise<Cursor<XPostInfo>> {
-    const size = pageSize(options);
+    const size = pageSize(options, 5);
     return postsCursor(this.#ctx, size, {
       request: (api, me, token) => api.get<WirePost[]>(`/2/users/${me.id}/liked_tweets`, {
         ...POST_FIELDS, ...pageQuery(size, token, { min: 5, max: 100 }),

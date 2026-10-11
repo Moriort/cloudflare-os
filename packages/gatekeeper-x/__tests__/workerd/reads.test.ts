@@ -117,6 +117,18 @@ describe("the daily read limit", () => {
     expect(await readsUsed(userObjectId)).toBe(2);
   });
 
+  it("reserves the page X will return, though a smaller one was asked for", async () => {
+    const { x, userObjectId, props, name } = await setup();
+    let reserved: number | undefined;
+    x.on("GET", /^\/2\/tweets\/search\/recent/, async () => {
+      reserved = await readsUsed(userObjectId);
+      return undefined;
+    });
+    unwrap(await hooks().run(name, props, [["searchPosts", "hello", { pageSize: 1 }]], { pages: 1 }));
+    // X's search returns, and bills, at least ten rows a page.
+    expect(reserved).toBe(10);
+  });
+
   it("refuses reads past the deployment's limit, naming when it resets", async () => {
     const { userObjectId, props, name } = await setup();
     await setReadsUsed(userObjectId, 50);
