@@ -400,6 +400,18 @@ describe("engagement", () => {
     expect(t.x.following.size + t.x.muting.size).toBe(0);
   });
 
+  it("won't revert a follow whose prior state X left out of its answer", async () => {
+    const t = await setup();
+    t.x.following.add(`${ALICE.id}:${BOB.id}`);
+    // X describes Bob without the relationship, as a partial error can.
+    t.x.on("GET", new RegExp(`^/2/users/${BOB.id}(\\?|$)`), () => json({ data: { ...BOB } }));
+    await t.run([["getUser", "bob"], ["follow"]]);
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    expect(unwrap(await t.revert(actionId))).toMatchObject({ canRetry: false });
+    expect([...t.x.following]).toEqual([`${ALICE.id}:${BOB.id}`]);
+  });
+
   it("keeps a follow and a mute that were already there when undoing actions that changed nothing", async () => {
     const t = await setup();
     t.x.following.add(`${ALICE.id}:${BOB.id}`);

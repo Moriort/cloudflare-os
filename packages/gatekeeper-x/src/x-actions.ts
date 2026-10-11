@@ -164,8 +164,8 @@ export type XActionHost = {
    * what to restore.
    */
   previous: {
-    get(id: number): ListDetails | boolean | undefined;
-    put(id: number, before: ListDetails | boolean): void;
+    get(id: number): ListDetails | boolean | "unknown" | undefined;
+    put(id: number, before: ListDetails | boolean | "unknown"): void;
     delete(id: number): void;
   };
   /** A send whose outcome X never reported, keyed by action and post index (0 for a List). */
@@ -359,19 +359,23 @@ function refuse(error: unknown, what: string): never {
  * Whether the account already followed or muted `userId`, so a revert restores that rather than
  * undoing a change that made none: read from X once, before the action's first effect, and kept for
  * its retries, which would otherwise read that effect back. A follow request already sent counts as
- * a follow.
+ * a follow. X can return the user without `connection_status` (a partial error), which says
+ * nothing: that is kept as unknown too, and the action then can't be reverted.
  */
 async function stateBefore(host: XActionHost, actionId: number, userId: string,
-                           relationship: "following" | "muting"): Promise<boolean> {
+                           relationship: "following" | "muting"): Promise<boolean | undefined> {
   const recorded = host.previous.get(actionId);
   if (typeof recorded === "boolean") return recorded;
+  if (recorded === "unknown") return undefined;
   const user = requireData(await host.read<WireUser>(1, api => api.get<WireUser>(`/2/users/${userId}`, {
     "user.fields": "connection_status",
   })), "user");
-  const status = user.connection_status ?? [];
-  const before = status.includes(relationship) || (relationship === "following" && status.includes("follow_request_sent"));
+  const status = user.connection_status;
+  const before = Array.isArray(status)
+    ? status.includes(relationship) || (relationship === "following" && status.includes("follow_request_sent"))
+    : "unknown";
   host.previous.put(actionId, before);
-  return before;
+  return before === "unknown" ? undefined : before;
 }
 
 async function toggle(host: XActionHost, op: (api: XApi, me: StoredIdentity) => Promise<unknown>,
