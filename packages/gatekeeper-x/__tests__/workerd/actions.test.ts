@@ -378,7 +378,7 @@ describe("actions on a pending post", () => {
 });
 
 describe("engagement", () => {
-  it("likes, follows and mutes, and undoes each", async () => {
+  it("likes, follows and mutes, and undoes the follow and mute but not the like", async () => {
     const t = await setup();
     const post = t.x.post(BOB, "nice");
     await t.run([["getPost", post.id], ["like"]]);
@@ -387,11 +387,30 @@ describe("engagement", () => {
     const [like, follow, mute] = await t.submitted();
     expect(mute.description.autoApprovable).toBe(true);
     expect(like.description.autoApprovable).toBe(false);
+    // X can't say whether the post was liked before, so undoing could remove a like that was there.
+    expect(like.description.implementsRevert).toBe(false);
+    expect(follow.description.implementsRevert).toBe(true);
     for (const { actionId } of [like, follow, mute]) unwrap(await t.apply(actionId));
     expect([...t.x.likes, ...t.x.following, ...t.x.muting])
       .toEqual([`${ALICE.id}:${post.id}`, `${ALICE.id}:${BOB.id}`, `${ALICE.id}:${BOB.id}`]);
-    for (const { actionId } of [like, follow, mute]) unwrap(await t.revert(actionId));
-    expect(t.x.likes.size + t.x.following.size + t.x.muting.size).toBe(0);
+    expect(unwrap(await t.revert(like.actionId)))
+      .toMatchObject({ message: expect.stringMatching(/can't say how this stood before the action/), canRetry: false });
+    for (const { actionId } of [follow, mute]) unwrap(await t.revert(actionId));
+    expect([...t.x.likes]).toEqual([`${ALICE.id}:${post.id}`]);
+    expect(t.x.following.size + t.x.muting.size).toBe(0);
+  });
+
+  it("keeps a follow and a mute that were already there when undoing actions that changed nothing", async () => {
+    const t = await setup();
+    t.x.following.add(`${ALICE.id}:${BOB.id}`);
+    t.x.muting.add(`${ALICE.id}:${BOB.id}`);
+    await t.run([["getUser", "bob"], ["follow"]]);
+    await t.run([["getUser", "bob"], ["mute"]]);
+    for (const { actionId } of await t.submitted()) {
+      unwrap(await t.apply(actionId));
+      unwrap(await t.revert(actionId));
+    }
+    expect([...t.x.following, ...t.x.muting]).toEqual([`${ALICE.id}:${BOB.id}`, `${ALICE.id}:${BOB.id}`]);
   });
 
   it("refuses to act on the connected account itself", async () => {

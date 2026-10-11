@@ -150,8 +150,8 @@ export class XGatekeeperImpl extends DurableObject<Env, XGatekeeperImplProps> im
       delete: id => this.ctx.storage.kv.delete(`${PROGRESS_PREFIX}${id}`),
     },
     previous: {
-      get: id => this.ctx.storage.kv.get<ListDetails>(`${PREVIOUS_PREFIX}${id}`),
-      put: (id, details) => this.ctx.storage.kv.put(`${PREVIOUS_PREFIX}${id}`, details),
+      get: id => this.ctx.storage.kv.get<ListDetails | boolean>(`${PREVIOUS_PREFIX}${id}`),
+      put: (id, before) => this.ctx.storage.kv.put(`${PREVIOUS_PREFIX}${id}`, before),
       delete: id => this.ctx.storage.kv.delete(`${PREVIOUS_PREFIX}${id}`),
     },
     attempts: {

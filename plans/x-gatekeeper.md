@@ -644,14 +644,20 @@ submits none):
 | `x.post.create` | Publish posts | `createPost`, `createThread` | upload images → alt text → `POST /2/tweets`; a thread in order, with progress | delete what was posted, newest first | no |
 | `x.post.reply` | Reply to posts | `XPost.reply` | `POST /2/tweets` with `reply.in_reply_to_tweet_id` | delete the reply | no |
 | `x.post.delete` | Delete posts | `XPost.delete` | `DELETE /2/tweets/:id` | — permanent | no |
-| `x.post.like` | Like posts | `like`, `unlike` | likes endpoints | inverse | no |
-| `x.post.repost` | Repost posts | `repost`, `undoRepost` | retweets endpoints | inverse | no |
-| `x.post.bookmark` | Bookmark posts | `bookmark`, `removeBookmark` | bookmarks endpoints | inverse | **yes** |
-| `x.post.hide` | Hide replies | `hide`, `unhide` | `PUT /2/tweets/:id/hidden` | inverse | **yes** |
-| `x.user.follow` | Follow accounts | `follow`, `unfollow` | following endpoints | inverse | no |
-| `x.user.mute` | Mute accounts | `mute`, `unmute` | muting endpoints | inverse | **yes** |
+| `x.post.like` | Like posts | `like`, `unlike` | likes endpoints | — X can't say whether it was already liked | no |
+| `x.post.repost` | Repost posts | `repost`, `undoRepost` | retweets endpoints | — likewise | no |
+| `x.post.bookmark` | Bookmark posts | `bookmark`, `removeBookmark` | bookmarks endpoints | — likewise | **yes** |
+| `x.post.hide` | Hide replies | `hide`, `unhide` | `PUT /2/tweets/:id/hidden` | — likewise | **yes** |
+| `x.user.follow` | Follow accounts | `follow`, `unfollow` | `connection_status` read once before the first effect, then following endpoints | restore that state (nothing, if the action changed nothing) | no |
+| `x.user.mute` | Mute accounts | `mute`, `unmute` | likewise, then muting endpoints | restore that state | **yes** |
 | `x.list.manage` | Manage Lists | `createList`, `XList.update`, `XList.delete` | lists endpoints | create → delete; update → restore the snapshot taken at apply; delete → — | no |
-| `x.list.members` | Manage List members | `addMember`, `removeMember` | members endpoints | inverse | no |
+| `x.list.members` | Manage List members | `addMember`, `removeMember` | members endpoints | — X can't say whether they were already a member | no |
+
+A revert that only made the inverse call would undo a change the action never made -- an approved
+`like()` on a post already liked, then reverted, removes the earlier like -- so a toggle is
+reverted only where X can say how it stood before: follows and mutes, through a billed
+`connection_status` read kept across the action's retries (`previous:<actionId>`). The rest
+declare `implementsRevert: false`, and their revert refuses, as a deletion's does.
 
 **Descriptions** (kit builder; titles through `sanitizeTitle`, labels through `plainInline`,
 content always in fields). Every title names the acting account — users connect personal and brand

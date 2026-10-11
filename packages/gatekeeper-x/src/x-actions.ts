@@ -29,7 +29,7 @@ import {
 } from "./x-api";
 import type { StoredIdentity } from "./x-credentials";
 import { VENDOR_ID } from "./x-env";
-import { sentContent, type SentContent, type WireList, type WirePost } from "./x-normalize";
+import { sentContent, type SentContent, type WireList, type WirePost, type WireUser } from "./x-normalize";
 import {
   TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, duplicateKey, extractCashtags, extractMentions, extractUrls,
   weightedLength, withoutLeadingMentions,
@@ -106,8 +106,20 @@ export type XActions = {
   };
   bookmark: { post: PostTarget; on: boolean; appliedAt?: number };
   hide: { post: PostTarget; hidden: boolean; appliedAt?: number };
-  follow: { user: XUserInfo; on: boolean; appliedAt?: number };
-  mute: { user: XUserInfo; on: boolean; appliedAt?: number };
+  follow: {
+    user: XUserInfo;
+    on: boolean;
+    /** Whether the account already followed them, read just before it applied: what a revert restores. */
+    before?: boolean;
+    appliedAt?: number;
+  };
+  mute: {
+    user: XUserInfo;
+    on: boolean;
+    /** Whether the account already muted them, read just before it applied: what a revert restores. */
+    before?: boolean;
+    appliedAt?: number;
+  };
   createList: {
     ref: string;
     name: string;
@@ -147,10 +159,15 @@ export type XActionHost = {
   /** Posts a thread has published so far, so a retry resumes rather than reposting. */
   progress: { get(id: number): string[]; put(id: number, ids: string[]): void; delete(id: number): void };
   /**
-   * A List's details from just before an update first went to X, so a retry after X applied it
-   * but lost the answer still records what to restore.
+   * What an action changes, from just before it first went to X -- a List's details, or whether a
+   * follow or mute was already on -- so a retry after X applied it but lost the answer still records
+   * what to restore.
    */
-  previous: { get(id: number): ListDetails | undefined; put(id: number, details: ListDetails): void; delete(id: number): void };
+  previous: {
+    get(id: number): ListDetails | boolean | undefined;
+    put(id: number, before: ListDetails | boolean): void;
+    delete(id: number): void;
+  };
   /** A send whose outcome X never reported, keyed by action and post index (0 for a List). */
   attempts: {
     get(key: string): SendAttempt | undefined; put(key: string, attempt: SendAttempt): void; delete(key: string): void;
@@ -338,6 +355,25 @@ function refuse(error: unknown, what: string): never {
  * Runs a write X makes idempotent -- liking a liked post or following a followed account answers
  * with the resulting state, not an error -- so a replay under refreshed credentials is safe.
  */
+/**
+ * Whether the account already followed or muted `userId`, so a revert restores that rather than
+ * undoing a change that made none: read from X once, before the action's first effect, and kept for
+ * its retries, which would otherwise read that effect back. A follow request already sent counts as
+ * a follow.
+ */
+async function stateBefore(host: XActionHost, actionId: number, userId: string,
+                           relationship: "following" | "muting"): Promise<boolean> {
+  const recorded = host.previous.get(actionId);
+  if (typeof recorded === "boolean") return recorded;
+  const user = requireData(await host.read<WireUser>(1, api => api.get<WireUser>(`/2/users/${userId}`, {
+    "user.fields": "connection_status",
+  })), "user");
+  const status = user.connection_status ?? [];
+  const before = status.includes(relationship) || (relationship === "following" && status.includes("follow_request_sent"));
+  host.previous.put(actionId, before);
+  return before;
+}
+
 async function toggle(host: XActionHost, op: (api: XApi, me: StoredIdentity) => Promise<unknown>,
                       what: string): Promise<void> {
   try {
@@ -722,7 +758,7 @@ export const actions = defineActions<XActionHost, XActions>({
         ...targetFields(buildDescription(payload.on
           ? `Like this post by ${post(payload.post)} as ${handle(me.username)}.`
           : `Remove ${handle(me.username)}'s like from this post by ${post(payload.post)}.`), payload.post).finish(),
-        implementsRevert: true,
+        implementsRevert: false,
       };
     },
     dependsOn: payload => isProvisional(payload.post.id) ? [payload.post.id] : [],
@@ -747,7 +783,7 @@ export const actions = defineActions<XActionHost, XActions>({
         ...targetFields(buildDescription(payload.on
           ? `Repost this post by ${post(payload.post)} to ${handle(me.username)}'s followers.`
           : `Undo ${handle(me.username)}'s repost of this post by ${post(payload.post)}.`), payload.post).finish(),
-        implementsRevert: true,
+        implementsRevert: false,
       };
     },
     dependsOn: payload => isProvisional(payload.post.id) ? [payload.post.id] : [],
@@ -774,7 +810,7 @@ export const actions = defineActions<XActionHost, XActions>({
         ...targetFields(buildDescription(payload.on
           ? `Bookmark this post by ${post(payload.post)} in ${handle(me.username)}'s private bookmarks.`
           : `Remove this post by ${post(payload.post)} from ${handle(me.username)}'s bookmarks.`), payload.post).finish(),
-        implementsRevert: true,
+        implementsRevert: false,
       };
     },
     dependsOn: payload => isProvisional(payload.post.id) ? [payload.post.id] : [],
@@ -799,7 +835,7 @@ export const actions = defineActions<XActionHost, XActions>({
       ...targetFields(buildDescription(payload.hidden
         ? `Hide this reply by ${post(payload.post)} from the conversation. It stays reachable behind X's "hidden replies" link.`
         : `Show this reply by ${post(payload.post)} in the conversation again.`), payload.post).finish(),
-      implementsRevert: true,
+        implementsRevert: false,
     }),
     dependsOn: payload => isProvisional(payload.post.id) ? [payload.post.id] : [],
     apply: async (payload, host) => {
@@ -826,12 +862,14 @@ export const actions = defineActions<XActionHost, XActions>({
         implementsRevert: true,
       };
     },
-    apply: async (payload, host) => {
+    apply: async (payload, host, ctx) => {
+      const before = await stateBefore(host, ctx.id, payload.user.id, "following");
       await toggle(host, (api, me) => payload.on
         ? api.post(`/2/users/${me.id}/following`, { target_user_id: payload.user.id })
         : api.delete(`/2/users/${me.id}/following/${payload.user.id}`),
       payload.on ? "follow this account" : "unfollow this account");
-      return { action: { ...payload, appliedAt: Date.now() } };
+      host.previous.delete(ctx.id);
+      return { action: { ...payload, before, appliedAt: Date.now() } };
     },
   },
 
@@ -852,12 +890,14 @@ export const actions = defineActions<XActionHost, XActions>({
         implementsRevert: true,
       };
     },
-    apply: async (payload, host) => {
+    apply: async (payload, host, ctx) => {
+      const before = await stateBefore(host, ctx.id, payload.user.id, "muting");
       await toggle(host, (api, me) => payload.on
         ? api.post(`/2/users/${me.id}/muting`, { target_user_id: payload.user.id })
         : api.delete(`/2/users/${me.id}/muting/${payload.user.id}`),
       payload.on ? "mute this account" : "unmute this account");
-      return { action: { ...payload, appliedAt: Date.now() } };
+      host.previous.delete(ctx.id);
+      return { action: { ...payload, before, appliedAt: Date.now() } };
     },
   },
 
@@ -930,7 +970,8 @@ export const actions = defineActions<XActionHost, XActions>({
     dependsOn: payload => isProvisional(payload.list.id) ? [payload.list.id] : [],
     apply: async (payload, host, ctx) => {
       const id = listId(host, payload.list);
-      let previous = host.previous.get(ctx.id);
+      const recorded = host.previous.get(ctx.id);
+      let previous = typeof recorded === "object" ? recorded : undefined;
       if (previous === undefined) {
         const before = requireData(await host.read<WireList>(1, api => api.get<WireList>(`/2/lists/${id}`, LIST_FIELDS)), "List");
         // Privacy X didn't report is restored as private, the safe way to be wrong.
@@ -979,7 +1020,7 @@ export const actions = defineActions<XActionHost, XActions>({
           ? `Add @${payload.user.username} to the X List "${payload.list.info.name}"`
           : `Remove @${payload.user.username} from the X List "${payload.list.info.name}"`),
         ...builder.finish(),
-        implementsRevert: true,
+        implementsRevert: false,
       };
     },
     dependsOn: payload => isProvisional(payload.list.id) ? [payload.list.id] : [],
@@ -1005,9 +1046,17 @@ export const actions = defineActions<XActionHost, XActions>({
 /** The outcome `revertAction` reports. */
 export type RevertOutcome = void | { message?: string; canRetry?: boolean; restart?: boolean };
 
+/** A revert refused because X can't say how things stood before the action. */
+const PRIOR_UNKNOWN: RevertOutcome = {
+  message: "X can't say how this stood before the action, so undoing it could remove what was there " +
+    "already. Change it on X if it shouldn't stay.",
+  canRetry: false,
+};
+
 /**
- * Undoes an applied action with the inverse call. Posts are deleted, toggles flipped back, a List's
- * old details restored; a deletion cannot be undone.
+ * Undoes an applied action. Posts are deleted, a List's old details restored, and a follow or mute
+ * returned to how it stood before; a deletion cannot be undone, nor a like, repost, bookmark, hide or
+ * List membership, since X can't say whether it was already so (`PRIOR_UNKNOWN`).
  */
 export async function revert(action: XAction, host: XActionHost): Promise<RevertOutcome> {
   switch (action.kind) {
@@ -1021,33 +1070,19 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       return { message: "A deleted post can't be restored.", canRetry: false };
     case "deleteList":
       return { message: "A deleted List can't be restored.", canRetry: false };
-    case "like": {
-      const id = postId(host, action.payload.post);
-      await host.write((api, me) => action.payload.on
-        ? api.delete(`/2/users/${me.id}/likes/${id}`)
-        : api.post(`/2/users/${me.id}/likes`, { tweet_id: id }), { replayable: true });
-      return;
-    }
-    case "repost": {
-      const id = postId(host, action.payload.post);
-      await host.write((api, me) => action.payload.on
-        ? api.delete(`/2/users/${me.id}/retweets/${id}`)
-        : api.post(`/2/users/${me.id}/retweets`, { tweet_id: id }), { replayable: true });
-      return;
-    }
-    case "bookmark": {
-      const id = postId(host, action.payload.post);
-      await host.write((api, me) => action.payload.on
-        ? api.delete(`/2/users/${me.id}/bookmarks/${id}`)
-        : api.post(`/2/users/${me.id}/bookmarks`, { tweet_id: id }), { replayable: true });
-      return;
-    }
-    case "hide": {
-      const id = postId(host, action.payload.post);
-      await host.write(api => api.put(`/2/tweets/${id}/hidden`, { hidden: !action.payload.hidden }), { replayable: true });
-      return;
-    }
+    case "like":
+      return PRIOR_UNKNOWN;
+    case "repost":
+      return PRIOR_UNKNOWN;
+    case "bookmark":
+      return PRIOR_UNKNOWN;
+    case "hide":
+      return PRIOR_UNKNOWN;
     case "follow": {
+      const { before, on } = action.payload;
+      if (before === undefined) return PRIOR_UNKNOWN;
+      // A follow that changed nothing leaves nothing to undo.
+      if (before === on) return;
       const target = action.payload.user.id;
       await host.write((api, me) => action.payload.on
         ? api.delete(`/2/users/${me.id}/following/${target}`)
@@ -1055,6 +1090,9 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       return;
     }
     case "mute": {
+      const { before, on } = action.payload;
+      if (before === undefined) return PRIOR_UNKNOWN;
+      if (before === on) return;
       const target = action.payload.user.id;
       await host.write((api, me) => action.payload.on
         ? api.delete(`/2/users/${me.id}/muting/${target}`)
@@ -1074,13 +1112,7 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       await host.write(api => api.put(`/2/lists/${id}`, previous), { replayable: true });
       return;
     }
-    case "listMember": {
-      const id = listId(host, action.payload.list);
-      const user = action.payload.user.id;
-      await host.write(api => action.payload.add
-        ? api.delete(`/2/lists/${id}/members/${user}`)
-        : api.post(`/2/lists/${id}/members`, { user_id: user }), { replayable: true });
-      return;
-    }
+    case "listMember":
+      return PRIOR_UNKNOWN;
   }
 }
