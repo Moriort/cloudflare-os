@@ -69,6 +69,14 @@ describe("withoutLeadingMentions", () => {
 });
 
 describe("comparableText", () => {
+  it("keeps a closing parenthesis the link opened, as X's parser does", () => {
+    const link = "https://en.wikipedia.org/wiki/Primer_(film)";
+    expect(extractUrls(`Read ${link}`)).toEqual([link]);
+    expect(extractUrls(`(see ${link}).`)).toEqual([link]);
+    expect(extractUrls("(see https://example.com/a), then")).toEqual(["https://example.com/a"]);
+    expect(comparableText(`Read ${link}`)).toBe(comparableText("Read https://t.co/AbCdEf"));
+  });
+
   it("keeps the punctuation after a link, however the link was written", () => {
     expect(comparableText("Visit example.com.")).toBe(comparableText("Visit https://t.co/AbCdEf."));
     expect(comparableText("See (https://example.com/a), then")).toBe(comparableText("See (https://t.co/x), then"));

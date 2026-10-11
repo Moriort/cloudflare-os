@@ -54,11 +54,30 @@ export function extractUrls(text: string): string[] {
   return [...text.matchAll(URL_PATTERN)].map(match => match[0].slice(0, linkEnd(match[0])));
 }
 
-/** Where a `URL_PATTERN` match's link ends, short of the sentence's punctuation after it. */
+/**
+ * Where a `URL_PATTERN` match's link ends, short of the sentence's punctuation after it. A closing
+ * bracket that closes one opened inside the link stays, as X's parser keeps balanced parentheses:
+ * Wikipedia's links end in them.
+ */
 function linkEnd(match: string): number {
-  // A loop rather than /[.,!?;:)\]]+$/, which is quadratic in a long run of punctuation.
+  // Brackets counted once and kept current, and a loop rather than /[.,!?;:)\]]+$/: either way a
+  // long run of punctuation stays linear.
+  const opened = { ")": 0, "]": 0 };
+  const closed = { ")": 0, "]": 0 };
+  for (const char of match) {
+    if (char === "(") opened[")"]++;
+    else if (char === "[") opened["]"]++;
+    else if (char === ")" || char === "]") closed[char]++;
+  }
   let end = match.length;
-  while (end > 0 && TRAILING_PUNCTUATION.has(match[end - 1])) end--;
+  while (end > 0 && TRAILING_PUNCTUATION.has(match[end - 1])) {
+    const last = match[end - 1];
+    if (last === ")" || last === "]") {
+      if (closed[last] <= opened[last]) break;
+      closed[last]--;
+    }
+    end--;
+  }
   return end;
 }
 

@@ -224,6 +224,22 @@ describe("publishing", () => {
     expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
   });
 
+  it("binds the post a lost answer hid, though X kept its link's parentheses", async () => {
+    const t = await setup();
+    const link = "https://en.wikipedia.org/wiki/Primer_(film)";
+    await t.run([["createPost", { text: `Read ${link}` }]]);
+    // X makes the post as its own parser reads the link, whole, then the answer is lost.
+    t.x.on("POST", /^\/2\/tweets$/, () => {
+      t.x.post(ALICE, "Read https://t.co/primer", { entities: { urls: [{ url: "https://t.co/primer", expanded_url: link }] } });
+      return new Response("upstream error", { status: 503 });
+    });
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    const posts = postsBy(t.x, ALICE.id);
+    expect(posts).toHaveLength(1);
+    expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
+  });
+
   it("binds the reply a lost answer hid, though X leads it with the handle it replies to", async () => {
     const x = new FakeX().install();
     const root = x.post(BOB, "@alice What do you think?");
