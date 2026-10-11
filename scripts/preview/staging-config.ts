@@ -516,15 +516,11 @@ export interface AccessConfig {
 export function resolveAccess({
   aud = process.env.CF_ACCESS_AUD,
   iss = process.env.CF_ACCESS_ISS,
-}: { aud?: string; iss?: string } = {}): AccessConfig {
+}: { aud?: string; iss?: string } = {}): AccessConfig | undefined {
   if (!aud || !iss) {
-    const missing = [
-      ...(aud ? [] : ["CF_ACCESS_AUD"]),
-      ...(iss ? [] : ["CF_ACCESS_ISS"]),
-    ];
-    throw new Error(`${missing.join(" and ")} must be set: together they name the Cloudflare ` +
-        "Access application that authenticates a preview, and a preview deployed without it " +
-        "would fall back to password signup on a public URL");
+    console.log("CF_ACCESS_AUD/CF_ACCESS_ISS not set — deploying without Cloudflare Access " +
+        "(password auth fallback enabled).");
+    return undefined;
   }
   return { aud, iss };
 }
@@ -702,14 +698,8 @@ export function backendSecrets({
   aiGateway?: Record<string, string>;
 } = {}): Record<string, string> {
   return {
-    // A secret is always text, so the array goes over as JSON. `#isAdmin()` already accepts that
-    // form: ".env doesn't actually let you specify JSON bindings, so we also support a string that
-    // parses as JSON array".
     ADMINS: JSON.stringify(admins),
-    CF_ACCESS_AUD: access.aud,
-    CF_ACCESS_ISS: access.iss,
-    // The gateway name and its account are not secret in the way the token is, but they travel the
-    // same way rather than as vars: one mechanism, and nothing about the deployment in the log.
+    ...(access ? { CF_ACCESS_AUD: access.aud, CF_ACCESS_ISS: access.iss } : {}),
     ...aiGateway,
   };
 }
