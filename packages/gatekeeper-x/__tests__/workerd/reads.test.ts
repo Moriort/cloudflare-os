@@ -5,7 +5,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XListInfo, XPostInfo, XUserInfo } from "../../src/types";
-import { ALICE, BOB, CAROL, FakeX, accountStub, failure, hooks, json, seedAccount, unwrap } from "./fake-x";
+import { ALICE, BOB, CAROL, FakeX, accountStub, failure, hooks, json, seedAccount, snowflakeAt, unwrap } from "./fake-x";
 import type { GatekeeperProps, Step } from "./worker";
 
 afterEach(() => {
@@ -421,6 +421,21 @@ describe("pending actions in reads", () => {
     })]);
     const [withoutReposts] = unwrap(await hooks().run(name, props, [["listMyPosts", { excludeReposts: true }]], { pages: 1 })) as XPostInfo[][];
     expect(withoutReposts).toEqual([]);
+  });
+
+  it("dates a pending repost when it was staged, so later bounds leave it out", async () => {
+    const { x, props, name } = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const post = x.post(BOB, "worth sharing");
+    unwrap(await hooks().run(name, props, [["getPost", post.id], ["repost"]]));
+    const staged = Date.now();
+    vi.setSystemTime(staged + 60 * 60 * 1000);
+    const [all] = unwrap(await hooks().run(name, props, [["listMyPosts"]], { pages: 1 })) as XPostInfo[][];
+    expect(all.map(item => item.createdAt)).toEqual([new Date(staged)]);
+    // A post ID stands for the time it encodes; a Date can't cross into the faked clock's Durable Object.
+    const since = { sinceId: snowflakeAt(staged + 1000) };
+    const [later] = unwrap(await hooks().run(name, props, [["listMyPosts", since]], { pages: 1 })) as XPostInfo[][];
+    expect(later).toEqual([]);
   });
 
   it("authorizes the profiles of a pending List's members, which were read from X", async () => {

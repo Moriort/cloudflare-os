@@ -7,7 +7,7 @@
 
 import type { JournalEntry } from "@gadgets/gatekeeper-kit/actions";
 import type { XListInfo, XPostInfo, XTimeRangeOptions, XUserInfo, XUserSummary } from "./types";
-import { snowflakeTime, type StoredDraft, type XAction } from "./x-actions";
+import { snowflakeTime, type StoredDraft, type XAction, type XActions } from "./x-actions";
 import type { StoredIdentity } from "./x-credentials";
 import { duplicateKey, extractMentions, extractUrls } from "./x-text";
 import { postUrl } from "./x-urls";
@@ -65,11 +65,12 @@ function synthesize(draft: StoredDraft, ref: string, me: StoredIdentity, submitt
 }
 
 /**
- * A pending repost of `source` as the account's timeline shows it until X makes it. Nothing gives
- * a repost an ID before then, so the row takes the reposted post's: what every action on a repost
- * targets anyway.
+ * A pending repost as the account's timeline shows it until X makes it, dated when it was staged.
+ * Nothing gives a repost an ID before then, so the row takes the reposted post's: what every action
+ * on a repost targets anyway.
  */
-function synthesizeRepost(id: string, source: XPostInfo, me: StoredIdentity): XPostInfo {
+function synthesizeRepost(id: string, repost: XActions["repost"], me: StoredIdentity): XPostInfo {
+  const source = repost.post.info;
   const url = source.url ?? postUrl(id, source.author.username || undefined);
   return {
     ...source,
@@ -77,7 +78,8 @@ function synthesizeRepost(id: string, source: XPostInfo, me: StoredIdentity): XP
     url,
     text: `RT @${source.author.username}: ${source.text}`,
     author: meSummary(me),
-    createdAt: new Date(),
+    // A repost staged before its time was recorded has none to give.
+    createdAt: new Date(repost.submittedAt ?? Date.now()),
     repostOf: { id, url, text: source.text, author: source.author, createdAt: source.createdAt },
   };
 }
@@ -185,8 +187,8 @@ export function overlayPosts(items: readonly XPostInfo[], pending: Pending, over
     case "others":
       break;
     case "mine": {
-      const reposts = toggles<XPostInfo>(pending, action => action.kind === "repost"
-        ? { key: resolve(action.payload.post.id), on: action.payload.on, value: action.payload.post.info } : undefined);
+      const reposts = toggles<XActions["repost"]>(pending, action => action.kind === "repost"
+        ? { key: resolve(action.payload.post.id), on: action.payload.on, value: action.payload } : undefined);
       result = result.filter(post => !(post.repostOf && reposts.get(post.repostOf.id)?.on === false));
       if (newestPage) {
         added = pendingPosts(pending, me, resolve)

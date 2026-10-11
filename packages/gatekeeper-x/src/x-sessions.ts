@@ -531,11 +531,13 @@ export class XPostImpl extends RpcTarget implements XPost {
   }
 
   async repost(): Promise<void> {
-    await this.#ctx.host.submit(this.#ctx.queue, "repost", { post: await this.#target(), on: true });
+    await this.#ctx.host.submit(this.#ctx.queue, "repost",
+      { post: await this.#target(), on: true, submittedAt: Date.now() });
   }
 
   async undoRepost(): Promise<void> {
-    await this.#ctx.host.submit(this.#ctx.queue, "repost", { post: await this.#target(), on: false });
+    await this.#ctx.host.submit(this.#ctx.queue, "repost",
+      { post: await this.#target(), on: false, submittedAt: Date.now() });
   }
 
   async bookmark(): Promise<void> {

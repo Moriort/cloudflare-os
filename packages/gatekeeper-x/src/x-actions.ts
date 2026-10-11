@@ -95,7 +95,13 @@ export type XActions = {
   };
   deletePost: { post: PostTarget; appliedAt?: number };
   like: { post: PostTarget; on: boolean; appliedAt?: number };
-  repost: { post: PostTarget; on: boolean; appliedAt?: number };
+  repost: {
+    post: PostTarget;
+    on: boolean;
+    /** When it was staged: what a pending repost's row is dated by. */
+    submittedAt?: number;
+    appliedAt?: number;
+  };
   bookmark: { post: PostTarget; on: boolean; appliedAt?: number };
   hide: { post: PostTarget; hidden: boolean; appliedAt?: number };
   follow: { user: XUserInfo; on: boolean; appliedAt?: number };
