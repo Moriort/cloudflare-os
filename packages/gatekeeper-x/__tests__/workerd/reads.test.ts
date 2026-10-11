@@ -234,22 +234,37 @@ describe("what a read discloses", () => {
     expect(await exclusions(name)).toEqual([["observer"], undefined, ["observer"]]);
   });
 
-  it("decides a List's privacy afresh for each page", async () => {
+  it("decides a List's privacy afresh for each page, as X has it then", async () => {
     const { x, props, name } = await observed();
-    vi.useFakeTimers({ toFake: ["Date"] });
     x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 2 });
     x.listMembers.set("77", new Set([BOB.id, CAROL.id]));
     let pages = 0;
     x.on("GET", /^\/2\/lists\/77\/members/, () => {
-      // Made private while the cursor is open, and the List as cached gone stale.
-      if (++pages === 2) {
-        x.lists.get("77")!.private = true;
-        vi.setSystemTime(Date.now() + 16 * 60 * 1000);
-      }
+      // Made private on X while the cursor is open, long before the cached List would expire.
+      if (++pages === 2) x.lists.get("77")!.private = true;
       return undefined;
     });
     unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers", { pageSize: 1 }]], { pages: 2 }));
     expect(await exclusions(name)).toEqual([undefined, ["observer"]]);
+  });
+
+  it("withholds a List's rows once another binding of the connection made it private", async () => {
+    const { x, props, name } = await observed();
+    x.lists.set("77", { id: "77", name: "Open", private: false, owner_id: ALICE.id, member_count: 1 });
+    x.listMembers.set("77", new Set([BOB.id]));
+    // This binding caches the List as public.
+    unwrap(await hooks().run(name, props, [["getList", "77"], ["getInfo"]]));
+    // Another binding makes it private, and its approval invalidates only its own cache.
+    const other = crypto.randomUUID();
+    unwrap(await hooks().run(other, props, [["getList", "77"], ["update", { private: true }]]));
+    const [{ actionId }] = (await hooks().queueLog(other)).submitted;
+    unwrap(await hooks().applyAction(other, props, actionId));
+    expect(x.lists.get("77")!.private).toBe(true);
+    x.listMembers.get("77")!.add(CAROL.id);
+    x.post(CAROL, "listed since");
+    unwrap(await hooks().run(name, props, [["getList", "77"], ["listMembers"]], { pages: 1 }));
+    unwrap(await hooks().run(name, props, [["getList", "77"], ["listPosts"]], { pages: 1 }));
+    expect(await exclusions(name)).toEqual([undefined, ["observer"], ["observer"]]);
   });
 
   it("shares private reads with an observer connected as the same X user", async () => {

@@ -736,7 +736,10 @@ Each read is classified before it is authorized:
   privacy's absence: a post whose author X did not expand, or expanded without `protected` (a
   200 can omit expansions it failed to hydrate), counts as a protected account's, as does a
   connected account whose identity X returned without it; a List X returned without `private`
-  counts as private.
+  counts as private. A page of a List's posts or members is judged by the List as X has it when
+  the page is read, not as cached: the cached List can predate its becoming private, on X or
+  through another binding, whose approval invalidates only its own cache. One cached as private
+  needs no second look.
 - **Public** otherwise: public posts, every profile (X shows protected accounts' profiles; only
   their posts are hidden), public Lists, and an unprotected account's followers and following.
 
