@@ -79,6 +79,13 @@ describe("account reads", () => {
     expect(x.count("GET", new RegExp(`^/2/tweets/${post.id}\\b`))).toBe(1);
   });
 
+  it("serves a polled timeline's newest page from the cache within a minute", async () => {
+    const { x, props, name } = await setup();
+    x.post(ALICE, "mine");
+    for (let poll = 0; poll < 3; poll++) unwrap(await hooks().run(name, props, [["listMyPosts"]], { pages: 1 }));
+    expect(x.count("GET", new RegExp(`^/2/users/${ALICE.id}/tweets`))).toBe(1);
+  });
+
   it("reports X's rate limit without retrying", async () => {
     const { x, props, name } = await setup();
     x.on("GET", /\/mentions/, () => json({ title: "Too Many Requests" },

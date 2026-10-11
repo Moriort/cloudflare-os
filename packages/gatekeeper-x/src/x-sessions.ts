@@ -663,6 +663,7 @@ async function profilePosts(ctx: SessionContext, user: WireUser, options: XTimel
     bounds,
     title: `Read ${name}'s X posts`,
     describe: count => `Read ${countOf(count, "post")} by ${name}.`,
+    cacheKey: `posts:${user.id}:${JSON.stringify(query)}`,
   });
 }
 
