@@ -131,6 +131,42 @@ function snowflake(value: string | undefined, name: string): string | undefined 
   return value;
 }
 
+/**
+ * `options` with a temporary post ID among its bounds resolved, so polling on from a post that is still
+ * waiting keeps working: to the ID X assigned once it is published, and until then to when it was
+ * submitted, the time its pending row shows and is filtered by.
+ */
+async function resolveBounds<T extends XTimeRangeOptions>(ctx: SessionContext, options: T | undefined):
+    Promise<T | undefined> {
+  if (!options) return options;
+  const { host } = ctx;
+  let bounds = options;
+  for (const key of ["sinceId", "untilId"] as const) {
+    const id = bounds[key];
+    if (id === undefined || !isProvisional(id)) continue;
+    const assigned = host.resolve(id);
+    if (!isProvisional(assigned)) {
+      bounds = key === "sinceId" ? { ...bounds, sinceId: assigned } : { ...bounds, untilId: assigned };
+      continue;
+    }
+    const post = pendingPost(assigned, host.pending(), await host.me(), ref => host.resolve(ref));
+    if (!post) throw new Error(`${key} names no pending post; it may have been rejected.`);
+    const at = post.createdAt;
+    bounds = key === "sinceId"
+      ? { ...bounds, sinceId: undefined, startTime: latest(bounds.startTime, new Date(at.getTime() + 1)) }
+      : { ...bounds, untilId: undefined, endTime: earliest(bounds.endTime, at) };
+  }
+  return bounds;
+}
+
+function latest(bound: Date | undefined, other: Date): Date {
+  return bound && bound > other ? bound : other;
+}
+
+function earliest(bound: Date | undefined, other: Date): Date {
+  return bound && bound < other ? bound : other;
+}
+
 function timeQuery(options: XTimeRangeOptions | undefined): Record<string, string | undefined> {
   return {
     since_id: snowflake(options?.sinceId, "sinceId"),
@@ -444,14 +480,15 @@ export class XPostImpl extends RpcTarget implements XPost {
 
   async listReplies(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options, 10);
-    const query = timeQuery(options);
+    const bounds = await resolveBounds(this.#ctx, options);
+    const query = timeQuery(bounds);
     const { host } = this.#ctx;
     if (this.#scope) await this.#info();
     const id = host.resolve(this.#id);
     if (isProvisional(id)) {
       const me = await host.me();
       return pendingCursor(pendingPosts(host.pending(), me, ref => host.resolve(ref))
-        .filter(post => post.replyTo?.postId === id && withinBounds(post, options)));
+        .filter(post => post.replyTo?.postId === id && withinBounds(post, bounds)));
     }
     return postsCursor(this.#ctx, size, {
       request: (api, _me, token) => api.get<WirePost[]>("/2/tweets/search/recent", {
@@ -460,7 +497,7 @@ export class XPostImpl extends RpcTarget implements XPost {
       }),
       overlay: { kind: "replies", parentId: id },
       newestFirst: true,
-      bounds: options,
+      bounds,
       title: "Read replies to an X post",
       describe: count => `Read ${countOf(count, "reply", "replies")} to an X post.`,
     });
@@ -468,13 +505,14 @@ export class XPostImpl extends RpcTarget implements XPost {
 
   async listConversation(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options, 10);
-    const query = timeQuery(options);
+    const bounds = await resolveBounds(this.#ctx, options);
+    const query = timeQuery(bounds);
     const { host } = this.#ctx;
     const conversation = host.resolve(await this.#ownConversation());
     if (isProvisional(conversation)) {
       const me = await host.me();
       return pendingCursor(pendingPosts(host.pending(), me, ref => host.resolve(ref))
-        .filter(post => host.resolve(post.conversationId) === conversation && withinBounds(post, options)));
+        .filter(post => host.resolve(post.conversationId) === conversation && withinBounds(post, bounds)));
     }
     return postsCursor(this.#ctx, size, {
       request: (api, _me, token) => api.get<WirePost[]>("/2/tweets/search/recent", {
@@ -483,7 +521,7 @@ export class XPostImpl extends RpcTarget implements XPost {
       }),
       overlay: { kind: "conversation", conversationId: conversation },
       newestFirst: true,
-      bounds: options,
+      bounds,
       title: "Read an X conversation",
       describe: count => `Read ${countOf(count, "post")} from an X conversation.`,
     });
@@ -611,7 +649,8 @@ async function profilePosts(ctx: SessionContext, user: WireUser, options: XTimel
   const size = pageSize(options, 5);
   const me = await ctx.host.me();
   const mine = user.id === me.id;
-  const query = { ...timeQuery(options), ...excludeQuery(options) };
+  const bounds = await resolveBounds(ctx, options);
+  const query = { ...timeQuery(bounds), ...excludeQuery(options) };
   const name = user.username ? `@${escapeObservationValue(user.username)}` : "an X user";
   return postsCursor(ctx, size, {
     request: (api, _me, token) => api.get<WirePost[]>(`/2/users/${user.id}/tweets`, {
@@ -621,7 +660,7 @@ async function profilePosts(ctx: SessionContext, user: WireUser, options: XTimel
       ? { kind: "mine", excludeReplies: options?.excludeReplies, excludeReposts: options?.excludeReposts }
       : { kind: "others" },
     newestFirst: true,
-    bounds: options,
+    bounds,
     title: `Read ${name}'s X posts`,
     describe: count => `Read ${countOf(count, "post")} by ${name}.`,
   });
@@ -880,14 +919,15 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
 
   async listHomeTimeline(options?: XTimelineOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options);
-    const query = { ...timeQuery(options), ...excludeQuery(options) };
+    const bounds = await resolveBounds(this.#ctx, options);
+    const query = { ...timeQuery(bounds), ...excludeQuery(options) };
     return postsCursor(this.#ctx, size, {
       request: (api, me, token) => api.get<WirePost[]>(`/2/users/${me.id}/timelines/reverse_chronological`, {
         ...POST_FIELDS, ...query, ...pageQuery(size, token, { min: 1, max: 100 }),
       }),
       overlay: { kind: "others" },
       newestFirst: true,
-      bounds: options,
+      bounds,
       // Whose posts it shows is whom the account follows, private to a protected account.
       privateSource: () => accountProtected(this.#ctx.host),
       title: "Read the X home timeline",
@@ -898,14 +938,15 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
 
   async listMentions(options?: XTimeRangeOptions): Promise<Cursor<XPostInfo>> {
     const size = pageSize(options, 5);
-    const query = timeQuery(options);
+    const bounds = await resolveBounds(this.#ctx, options);
+    const query = timeQuery(bounds);
     return postsCursor(this.#ctx, size, {
       request: (api, me, token) => api.get<WirePost[]>(`/2/users/${me.id}/mentions`, {
         ...POST_FIELDS, ...query, ...pageQuery(size, token, { min: 5, max: 100 }),
       }),
       overlay: { kind: "others" },
       newestFirst: true,
-      bounds: options,
+      bounds,
       title: "Read X mentions",
       describe: count => `Read ${countOf(count, "post")} mentioning the connected account.`,
       cacheKey: `mentions:${JSON.stringify(query)}`,
@@ -925,7 +966,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
     if (sortOrder !== undefined && sortOrder !== "recency" && sortOrder !== "relevancy") {
       throw new Error('sortOrder must be "recency" or "relevancy".');
     }
-    const range = timeQuery(options);
+    const range = timeQuery(await resolveBounds(this.#ctx, options));
     const shown = escapeObservationValue(query.length > 120 ? `${query.slice(0, 117)}...` : query);
     return postsCursor(this.#ctx, size, {
       request: (api, _me, token) => api.get<WirePost[]>("/2/tweets/search/recent", {

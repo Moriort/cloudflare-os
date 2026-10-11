@@ -402,6 +402,21 @@ describe("pending actions in reads", () => {
     expect(await ids(["getPost", "~1"], ["listReplies", { endTime: later }])).toEqual(["~2"]);
   });
 
+  it("polls on from a pending post's temporary ID, before and after X publishes it", async () => {
+    const { x, props, name } = await setup();
+    unwrap(await hooks().run(name, props, [["createPost", { text: "Draft one" }]]));
+    const since = async (sinceId: string) =>
+      (unwrap(await hooks().run(name, props, [["listMyPosts", { sinceId }]], { pages: 1 })) as XPostInfo[][])[0]
+        .map(post => post.text);
+    expect(await since("~1")).toEqual([]);
+    const [{ actionId }] = (await hooks().queueLog(name)).submitted;
+    unwrap(await hooks().applyAction(name, props, actionId));
+    x.post(ALICE, "Later one");
+    expect(await since("~1")).toEqual(["Later one"]);
+    expect(failure(await hooks().run(name, props, [["listMyPosts", { sinceId: "~9" }]], { pages: 1 })))
+      .toBe("sinceId names no pending post; it may have been rejected.");
+  });
+
   it("shows a pending bookmark and follow", async () => {
     const { x, props, name } = await setup();
     const post = x.post(BOB, "worth keeping");

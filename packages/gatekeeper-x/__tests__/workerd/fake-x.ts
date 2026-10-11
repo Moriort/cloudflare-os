@@ -193,9 +193,12 @@ export class FakeX {
       const [, userId, kind] = match;
       const since = Date.parse(url.searchParams.get("start_time") ?? "");
       const until = Date.parse(url.searchParams.get("end_time") ?? "");
+      const sinceId = BigInt(url.searchParams.get("since_id") ?? "0");
+      const untilId = url.searchParams.has("until_id") ? BigInt(url.searchParams.get("until_id")!) : undefined;
       const posts = [...this.posts.values()].filter(post => {
         const created = Date.parse(post.created_at ?? "");
         if (created < since || created > until) return false;
+        if (BigInt(post.id) <= sinceId || (untilId !== undefined && BigInt(post.id) >= untilId)) return false;
         switch (kind) {
           case "tweets": return post.author_id === userId;
           case "mentions": return post.text?.includes(`@${this.users.get(userId)?.username}`) ?? false;

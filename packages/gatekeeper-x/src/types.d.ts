@@ -34,10 +34,11 @@ export type XPageOptions = {
 export type XTimeRangeOptions = XPageOptions & {
   /**
    * Only posts newer than this post ID. Pass the newest post ID you have already seen to fetch
-   * only the posts that arrived since.
+   * only the posts that arrived since. A temporary ID ("~N") stands for its post: the ID X assigned
+   * once it is published, and until then the time it was submitted.
    */
   sinceId?: string;
-  /** Only posts older than this post ID. */
+  /** Only posts older than this post ID, which may be a temporary one, as for `sinceId`. */
   untilId?: string;
   /** Only posts created after this time. */
   startTime?: Date;
