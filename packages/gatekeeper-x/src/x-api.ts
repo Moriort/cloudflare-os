@@ -134,13 +134,30 @@ export function errorForResponse(response: Response, body: unknown): XApiError {
 export function requireData<T>(envelope: XEnvelope<T>, what: string): T {
   if (envelope.data !== undefined && envelope.data !== null) return envelope.data;
   const problem = envelope.errors?.[0];
-  const type = problem?.type ?? "";
-  const status = /not-found/.test(type) ? 404 : /not-authorized|forbidden|unavailable/.test(type) ? 403 : 400;
+  const status = problemStatus(problem);
   throw new XApiError(status, status === 404
     ? `X has no ${what} with that ID, or it was deleted.`
     : status === 403
       ? `The connected X account can't see this ${what}.`
-      : describeProblem(problem, status), type);
+      : describeProblem(problem, status), problem?.type ?? "");
+}
+
+/**
+ * A listing page, or the error X reported in place of its rows. X can answer a listing it couldn't
+ * read with a 200 holding only `errors`, which taken as an empty page would end the listing as if
+ * nothing were left.
+ */
+export function requirePage<T>(envelope: XEnvelope<T[]>): XEnvelope<T[]> {
+  const problem = envelope.data ? undefined : envelope.errors?.[0];
+  if (!problem) return envelope;
+  const status = problemStatus(problem);
+  throw new XApiError(status, describeProblem(problem, status), problem.type);
+}
+
+/** The status a problem X reported in place of what a read asked for stands for. */
+function problemStatus(problem: XProblem | undefined): number {
+  const type = problem?.type ?? "";
+  return /not-found/.test(type) ? 404 : /not-authorized|forbidden|unavailable/.test(type) ? 403 : 400;
 }
 
 type QueryValue = string | number | boolean | undefined;

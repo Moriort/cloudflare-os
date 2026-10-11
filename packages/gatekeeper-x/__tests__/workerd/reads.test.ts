@@ -87,6 +87,25 @@ describe("account reads", () => {
       .toBe("X's rate limit for this request is used up for this account. It resets at 15:00 UTC.");
     expect(x.count("GET", /\/mentions/)).toBe(1);
   });
+
+  it("fails a listing page X answered with errors in place of rows, and keeps none of it", async () => {
+    const { x, props, name } = await setup();
+    x.post(BOB, "hello @alice");
+    for (const [method, pattern] of [
+      ["listMentions", /\/mentions/], ["listFollowing", /\/following/], ["listOwnedLists", /\/owned_lists/],
+    ] as const) {
+      let failed = false;
+      x.on("GET", pattern, () => {
+        if (failed) return undefined;
+        failed = true;
+        return json({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] });
+      });
+      expect(failure(await hooks().run(name, props, [[method]], { pages: 1 }))).toBe("X: Something went wrong.");
+    }
+    // Reading again asks X, which answers this time: the failed page wasn't cached as empty.
+    const [mentions] = unwrap(await hooks().run(name, props, [["listMentions"]], { pages: 1 })) as XPostInfo[][];
+    expect(mentions.map(post => post.text)).toEqual(["hello @alice"]);
+  });
 });
 
 describe("the daily read limit", () => {

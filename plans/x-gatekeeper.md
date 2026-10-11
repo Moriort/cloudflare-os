@@ -269,6 +269,8 @@ One `request(method, path, {query, body, token})`: bearer token, 30 s timeout, b
 `x-rate-limit-reset` — unless the problem `type` is `…/usage-capped`, which becomes
 `XCreditsError`; other 4xx become `XApiError` with X's `title`/`detail`. A 200 can carry partial
 `errors[]` (rows X couldn't hydrate); those rows are dropped and logged by type, never by content.
+A listing page holding only `errors[]` fails with X's explanation (`requirePage`): read as an empty
+page, it would end the cursor as though nothing were left, and be cached that way.
 
 Endpoints (per-user limits per 15 minutes unless noted; prices from X's pay-per-usage table. Reads
 and post creation are priced explicitly there; the other write rows map onto its classes — "User

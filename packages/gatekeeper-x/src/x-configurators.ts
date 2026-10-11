@@ -9,7 +9,7 @@ import type { XConfiguratorOption, XListConfiguratorRpc } from "./configurator/x
 import type { XPostConfiguratorRpc } from "./configurator/x-post-configurator-types";
 import type { XProfileConfiguratorRpc } from "./configurator/x-profile-configurator-types";
 import type { XListInfo } from "./types";
-import { LIST_FIELDS, XApi, requireData, type XEnvelope } from "./x-api";
+import { LIST_FIELDS, XApi, requireData, requirePage, type XEnvelope } from "./x-api";
 import { accountSource, withinReadLimit } from "./x-credentials";
 import { indexIncludes, toListInfo, type WireList } from "./x-normalize";
 import { SNOWFLAKE, parseXUrl } from "./x-urls";
@@ -70,6 +70,7 @@ export class XListConfiguratorUI extends RpcTarget implements XListConfiguratorR
         .then(me => this.#read<WireList[]>(api => api.get<WireList[]>(`/2/users/${me.id}/owned_lists`, {
           ...LIST_FIELDS, max_results: MAX_OWNED_LISTS,
         }), MAX_OWNED_LISTS))
+        .then(requirePage)
         .then(envelope => {
           const includes = indexIncludes(envelope.includes);
           return (envelope.data ?? []).map(list => listOption(toListInfo(list, includes)));

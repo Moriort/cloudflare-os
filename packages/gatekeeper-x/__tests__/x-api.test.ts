@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   XApi, XApiError, XCreditsError, XRateLimitError, XTransportError, billableResources, isOutcomeUnknown,
-  isXAuthError, pageQuery, requireData, xTime,
+  isXAuthError, pageQuery, requireData, requirePage, xTime,
 } from "../src/x-api";
 
 function respond(status: number, body?: unknown, headers: Record<string, string> = {}): void {
@@ -114,6 +114,21 @@ describe("requireData", () => {
     expect(() => requireData({ errors: [{ type: "https://api.twitter.com/2/problems/not-authorized-for-resource" }] }, "post"))
       .toThrow(expect.objectContaining({ status: 403 }));
     expect(requireData({ data: { id: "1" } }, "post")).toEqual({ id: "1" });
+  });
+});
+
+describe("requirePage", () => {
+  it("fails a page X answered with errors in place of rows, in X's words", () => {
+    expect(() => requirePage({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] }))
+      .toThrow(expect.objectContaining({ message: "X: Something went wrong." }));
+    expect(() => requirePage({ errors: [{ type: "https://api.twitter.com/2/problems/resource-not-found", detail: "No such List." }] }))
+      .toThrow(expect.objectContaining({ status: 404, message: "X: No such List." }));
+  });
+
+  it("keeps a page with rows, whatever partial errors come with them, and an empty one", () => {
+    const partial = { data: [{ id: "1" }], errors: [{ type: "https://api.twitter.com/2/problems/resource-not-found" }] };
+    expect(requirePage(partial)).toBe(partial);
+    expect(requirePage({ meta: { result_count: 0 } })).toEqual({ meta: { result_count: 0 } });
   });
 });
 

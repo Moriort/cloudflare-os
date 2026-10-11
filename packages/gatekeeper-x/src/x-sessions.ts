@@ -17,7 +17,7 @@ import type {
   XSearchOptions, XTimeRangeOptions, XTimelineOptions, XUser, XUserInfo, XUserSummary,
 } from "./types";
 import {
-  LIST_FIELDS, POST_FIELDS, USER_FIELDS, XApi, pageQuery, requireData, xTime, type XEnvelope,
+  LIST_FIELDS, POST_FIELDS, USER_FIELDS, XApi, pageQuery, requireData, requirePage, xTime, type XEnvelope,
 } from "./x-api";
 import { MAX_THREAD_POSTS, validateDraft, type StoredDraft, type XActions } from "./x-actions";
 import type { StoredIdentity } from "./x-credentials";
@@ -181,7 +181,9 @@ function postsCursor(ctx: SessionContext, size: number, listing: PostListing): C
   return new XCursor<XPostInfo>({
     fetchPage: async token => {
       const me = await host.me();
-      const load = () => host.read<WirePost[]>(size, (api, current) => listing.request(api, current, token, size));
+      // Checked before it is cached, so a failed read is asked again rather than replayed.
+      const load = () => host.read<WirePost[]>(size, (api, current) => listing.request(api, current, token, size))
+        .then(requirePage);
       const envelope = token === undefined && listing.cacheKey
         ? await host.cached(`page:${listing.cacheKey}:${size}`, PAGE_TTL_MS, load)
         : await load();
@@ -233,7 +235,8 @@ function usersCursor(ctx: SessionContext, size: number, listing: UserListing): C
   return new XCursor<XUserInfo>({
     fetchPage: async token => {
       const me = await host.me();
-      const envelope = await host.read<WireUser[]>(size, (api, current) => listing.request(api, current, token, size));
+      const envelope = await host.read<WireUser[]>(size, (api, current) => listing.request(api, current, token, size))
+        .then(requirePage);
       const fetched = (envelope.data ?? []).map(user => toUserInfo(user, listing.relationship && user.id !== me.id));
       const items = listing.overlay(fetched, token === undefined);
       return {
@@ -943,7 +946,7 @@ export class XAccountSessionImpl extends RpcTarget implements XAccountSession {
       fetchPage: async token => {
         const envelope = await host.read<WireList[]>(size, (api, me) => api.get<WireList[]>(`/2/users/${me.id}/owned_lists`, {
           ...LIST_FIELDS, ...pageQuery(size, token, { min: 1, max: 100 }),
-        }));
+        })).then(requirePage);
         const includes = indexIncludes(envelope.includes);
         const fetched = (envelope.data ?? []).map(list => toListInfo(list, includes));
         const items = overlayOwnedLists(fetched, host.pending(), ref => host.resolve(ref), token === undefined);
