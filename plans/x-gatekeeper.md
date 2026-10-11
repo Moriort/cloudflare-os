@@ -1080,7 +1080,10 @@ departed from the design above:
   action pending with a plain error, and the next apply first reads the account's posts dated from
   10 s before the attempt to 5 minutes after it (`max_results=100`). It binds a post only when
   exactly one matches the draft's reply parent, `comparableText`, link destinations
-  (`expanded_url`, through `comparableUrl`), poll and media IDs. None sends again. More than one,
+  (`expanded_url`, through `comparableUrl`), poll and media IDs. None sends again, but only once
+  the window has closed: until then X may still be about to show the post, which nothing else
+  (no duplicate-text refusal for an image-only post) would stop a second send of, so the apply
+  fails and names when approving again will settle it. More than one,
   one X dated before the send began (by its snowflake ID, to the millisecond), which may have been
   there already, or a window too full for one page ends the action with
   `ActionOutcomeUnknownError`, since binding the wrong post would have a revert delete it. A

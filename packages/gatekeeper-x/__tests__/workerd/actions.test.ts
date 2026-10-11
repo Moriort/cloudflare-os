@@ -13,6 +13,7 @@ import type { GatekeeperProps, Step } from "./worker";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -146,6 +147,7 @@ describe("publishing", () => {
       { text: "Read this: https://example.com/b" }],
   ])("never binds an earlier post that differs only in its %s", async (_differs, earlier, draft) => {
     const t = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
     const { id: earlierId } = t.x.post(ALICE, earlier.text, earlier);
     await t.run([["createPost", draft]]);
     let failed = false;
@@ -156,6 +158,8 @@ describe("publishing", () => {
     });
     const [{ actionId }] = await t.submitted();
     expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this post was published/);
+    // Once X has had time to show what the first send made, finding only the earlier post sends again.
+    vi.setSystemTime(Date.now() + 6 * 60 * 1000);
     unwrap(await t.apply(actionId));
     const [created] = postsBy(t.x, ALICE.id).filter(post => post.id !== earlierId);
     expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: created.id });
@@ -205,23 +209,42 @@ describe("publishing", () => {
     expect(t.x.posts.has(earlier.id)).toBe(true);
   });
 
-  it("binds the post an unconfirmed send made when X refuses the next as its duplicate", async () => {
+  it("binds the post an unconfirmed send made once X shows it, sending nothing again", async () => {
     const t = await setup();
     await t.run([["createPost", { text: "Slow to show" }]]);
     t.x.loseAnswer("POST", /^\/2\/tweets$/);
-    // X's timeline lags: the post is missing from the first two looks.
+    // X's timeline lags: the post is missing from the look right after the lost answer, and the next.
     let lagging = 2;
     t.x.on("GET", new RegExp(`^/2/users/${ALICE.id}/tweets`), () => lagging-- > 0 ? json({ meta: { result_count: 0 } }) : undefined);
     const [{ actionId }] = await t.submitted();
     expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this post was published/);
+    expect(failure(await t.apply(actionId))).toMatch(/doesn't show this post yet.*Approve it again after \d\d:\d\d UTC/);
     unwrap(await t.apply(actionId));
     const posts = postsBy(t.x, ALICE.id);
     expect(posts).toHaveLength(1);
+    expect(t.x.count("POST", /^\/2\/tweets$/)).toBe(1);
     expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
   });
 
-  it("won't let a post X may have made be rejected, and posts it on the next approval if it didn't", async () => {
+  it("won't send an image post again while X may not show the first yet", async () => {
     const t = await setup();
+    // Image-only: no duplicate-text refusal would stop a second send.
+    await t.run([["createPost", { text: "", images: [{ data: PNG, mediaType: "image/png" }] }]]);
+    t.x.loseAnswer("POST", /^\/2\/tweets$/);
+    let lagging = 3;
+    t.x.on("GET", new RegExp(`^/2/users/${ALICE.id}/tweets`), () => lagging-- > 0 ? json({ meta: { result_count: 0 } }) : undefined);
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this post was published/);
+    expect(failure(await t.apply(actionId))).toMatch(/doesn't show this post yet/);
+    expect(failure(await t.apply(actionId))).toMatch(/doesn't show this post yet/);
+    unwrap(await t.apply(actionId));
+    expect(postsBy(t.x, ALICE.id)).toHaveLength(1);
+    expect(t.x.count("POST", /^\/2\/tweets$/)).toBe(1);
+  });
+
+  it("won't let a post X may have made be rejected, and posts it once X has had time to show it", async () => {
+    const t = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
     await t.run([["createPost", { text: "Maybe" }]]);
     let failed = false;
     t.x.on("POST", /^\/2\/tweets$/, () => {
@@ -232,6 +255,8 @@ describe("publishing", () => {
     const [{ actionId }] = await t.submitted();
     expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this post was published/);
     expect(failure(await t.reject(actionId))).toMatch(/never confirmed whether this post was published/);
+    expect(failure(await t.apply(actionId))).toMatch(/doesn't show this post yet/);
+    vi.setSystemTime(Date.now() + 6 * 60 * 1000);
     unwrap(await t.apply(actionId));
     expect(postsBy(t.x, ALICE.id).map(post => post.text)).toEqual(["Maybe"]);
   });

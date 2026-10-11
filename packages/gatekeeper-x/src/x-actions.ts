@@ -351,6 +351,25 @@ function unresolved(things: "posts" | "Lists"): ActionOutcomeUnknownError {
 }
 
 /**
+ * Whether a send's window has closed: X has dated, and shown, anything the send made by then, so a
+ * look that finds nothing proves it made nothing. Until then X may still be about to show it.
+ */
+function windowClosed(attempt: SendAttempt): boolean {
+  return attempt.at + RECONCILE_WINDOW_MS < Date.now() - CLOCK_SKEW_MS;
+}
+
+/**
+ * The end of a look that found nothing while X may yet show what the send made: X can take minutes
+ * to show a new post. It fails the apply, keeping the attempt, so an approval after `conclusive`
+ * looks again rather than sending a second.
+ */
+function notShownYet(conclusive: number): Error {
+  const after = new Date(Math.ceil(conclusive / 60_000) * 60_000).toISOString().slice(11, 16);
+  return new Error("X doesn't show this post yet, and one it made can take a few minutes to appear, so it " +
+    `wasn't sent again. Approve it again after ${after} UTC to look once more.`);
+}
+
+/**
  * The rows of a reconciliation read. X can answer 200 with errors in place of rows, and a row it
  * left out could be what the send made, so such an answer settles nothing: it fails the apply,
  * leaving the attempt for the next approval to look again, rather than letting it send twice.
@@ -378,18 +397,18 @@ function contentKey(content: SentContent): string {
  * Finds the post a send whose outcome X never reported made, so a retry binds it instead of
  * posting twice: among the account's posts dated around the attempt, the one with the draft's
  * reply parent, text, link destinations and poll, carrying the media the attempt uploaded.
- * @returns The post's ID, or `undefined` when none matches and the send may go again.
+ * @returns The post's ID, or `undefined` when none matches: proof the send made none only once its
+ * window has closed (`windowClosed`).
  * @throws ActionOutcomeUnknownError when more than one could match, or one from before the send
  * (`unresolved`).
  */
 async function findPublished(host: XActionHost, draft: StoredDraft, replyTo: string | undefined,
                              attempt: SendAttempt): Promise<string | undefined> {
-  const windowEnd = attempt.at + RECONCILE_WINDOW_MS;
   const envelope = await host.read<WirePost[]>(5, (api, me) => api.get<WirePost[]>(`/2/users/${me.id}/tweets`, {
     max_results: 100,
     start_time: xTime(new Date(attempt.at - CLOCK_SKEW_MS)),
     // Until the window has closed it runs to the present.
-    ...(windowEnd < Date.now() - CLOCK_SKEW_MS ? { end_time: xTime(new Date(windowEnd)) } : {}),
+    ...(windowClosed(attempt) ? { end_time: xTime(new Date(attempt.at + RECONCILE_WINDOW_MS)) } : {}),
     "tweet.fields": "created_at,referenced_tweets,note_tweet,entities,attachments",
   }));
   const wanted = contentKey({
@@ -450,11 +469,14 @@ async function publishOne(host: XActionHost, draft: StoredDraft, replyTo: string
                           attemptKey: string): Promise<string> {
   const prior = host.attempts.get(attemptKey);
   if (prior) {
+    // Judged before the look: one run while the window was open proves nothing by finding nothing.
+    const conclusive = windowClosed(prior);
     const landed = await findPublished(host, draft, replyTo, prior);
     if (landed) {
       host.attempts.delete(attemptKey);
       return landed;
     }
+    if (!conclusive) throw notShownYet(prior.at + RECONCILE_WINDOW_MS + CLOCK_SKEW_MS);
   }
 
   const mediaIds: string[] = [];
