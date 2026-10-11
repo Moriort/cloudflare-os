@@ -101,9 +101,9 @@ describe("XApi failures", () => {
     expect(isOutcomeUnknown(await failure(new XApi("t").post("/2/tweets", { text: "x" })))).toBe(false);
   });
 
-  it("refuses a success that is not JSON", async () => {
+  it("reads a success that is not JSON as an answer it couldn't read", async () => {
     respond(200, "<html>");
-    expect((await failure(new XApi("t").get("/2/users/me")) as XApiError).status).toBe(502);
+    expect(await failure(new XApi("t").get("/2/users/me"))).toBeInstanceOf(XTransportError);
   });
 });
 

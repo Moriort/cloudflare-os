@@ -129,6 +129,14 @@ describe("the daily read limit", () => {
     expect(reserved).toBe(10);
   });
 
+  it("keeps a read's reservation when X's answer to it couldn't be read", async () => {
+    const { x, userObjectId, props, name } = await setup();
+    x.on("GET", /\/mentions/, () => new Response("<html>", { status: 200 }));
+    failure(await hooks().run(name, props, [["listMentions", { pageSize: 20 }]], { pages: 1 }));
+    // X may have billed rows nobody saw, so the reservation stands.
+    expect(await readsUsed(userObjectId)).toBe(20);
+  });
+
   it("refuses reads past the deployment's limit, naming when it resets", async () => {
     const { userObjectId, props, name } = await setup();
     await setReadsUsed(userObjectId, 50);

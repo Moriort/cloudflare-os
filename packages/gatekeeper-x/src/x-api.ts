@@ -239,7 +239,8 @@ export class XApi {
       try {
         parsed = JSON.parse(text);
       } catch {
-        if (response.ok) throw new XApiError(502, "X answered with a response that is not JSON.");
+        // Unread, as far as billing goes: X may have returned, and billed, rows in it.
+        if (response.ok) throw new XTransportError("X answered with a response that is not JSON.");
       }
     }
     if (!response.ok) throw errorForResponse(response, parsed);

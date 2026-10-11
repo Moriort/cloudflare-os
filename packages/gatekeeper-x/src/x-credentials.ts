@@ -5,7 +5,7 @@
 import { CredentialSource } from "@gadgets/gatekeeper-kit/credentials";
 import type { GatekeeperUserVerifier } from "@gadgets/workshop-shared/gatekeeper";
 import { obsContext } from "./observability";
-import { billableResources, isXAuthError, type XEnvelope } from "./x-api";
+import { XTransportError, billableResources, isXAuthError, type XEnvelope } from "./x-api";
 import { VENDOR_ID } from "./x-env";
 
 const logger = obsContext.createLogger({ component: "gatekeeper.x", vendorId: VENDOR_ID });
@@ -76,7 +76,8 @@ export type ReadBudget = {
 /**
  * Runs a read within the connection's daily limit: reserves `reserve` billable reads first, then
  * settles with what X returned, which is what X bills. The last read before the limit may overshoot
- * it by the rows X added beyond the reservation.
+ * it by the rows X added beyond the reservation. A read whose answer was lost or couldn't be read
+ * keeps its reservation, since X may have billed rows nobody saw; any other failure returned none.
  * @param whose Whose connection a refusal names.
  */
 export async function withinReadLimit<T>(budget: ReadBudget, reserve: number,
@@ -88,6 +89,9 @@ export async function withinReadLimit<T>(budget: ReadBudget, reserve: number,
     const envelope = await read();
     billed = billableResources(envelope);
     return envelope;
+  } catch (error) {
+    if (error instanceof XTransportError) billed = reserve;
+    throw error;
   } finally {
     try {
       if (reservation.day !== undefined) await budget.settleReads(reserve, billed, reservation.day);
