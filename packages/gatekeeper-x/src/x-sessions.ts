@@ -19,7 +19,7 @@ import type {
 import {
   LIST_FIELDS, POST_FIELDS, USER_FIELDS, XApi, pageQuery, requireData, requirePage, xTime, type XEnvelope,
 } from "./x-api";
-import { MAX_THREAD_POSTS, validateDraft, type StoredDraft, type XActions } from "./x-actions";
+import { MAX_THREAD_POSTS, validateDraft, validateReplyParent, type StoredDraft, type XActions } from "./x-actions";
 import type { StoredIdentity } from "./x-credentials";
 import { XCursor, type XPage } from "./x-cursor";
 import {
@@ -508,7 +508,9 @@ export class XPostImpl extends RpcTarget implements XPost {
   async reply(draft: XPostDraft): Promise<XPost> {
     const { host } = this.#ctx;
     const parent = await this.#info();
-    validateDraft(draft, await host.me(), pendingTexts(host.pending()));
+    const me = await host.me();
+    validateReplyParent(parent, me);
+    validateDraft(draft, me, pendingTexts(host.pending()));
     const stored = await storeDraft(this.#ctx, draft);
     const ref = host.allocate("post");
     await host.submit(this.#ctx.queue, "reply", {

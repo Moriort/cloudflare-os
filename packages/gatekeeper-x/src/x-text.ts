@@ -59,6 +59,14 @@ export function extractUrls(text: string): string[] {
   });
 }
 
+/** A cashtag: "$" and one to six letters, with an optional short class suffix ("$BRK.A"). */
+const CASHTAG_PATTERN = /(?<![\w$])\$([A-Za-z]{1,6}(?:[._][A-Za-z]{1,2})?)(?![\w$])/g;
+
+/** The cashtags `text` carries, without the "$", one per occurrence. */
+export function extractCashtags(text: string): string[] {
+  return [...text.matchAll(CASHTAG_PATTERN)].map(match => match[1]);
+}
+
 /** The handles `text` mentions, without the "@", deduplicated case-insensitively. */
 export function extractMentions(text: string): string[] {
   const seen = new Map<string, string>();

@@ -671,8 +671,10 @@ accounts side by side.
 (twitter-text rules: a URL counts 23, wide code points 2) against 280, or 25,000 when
 `subscription_type` isn't `None`; empty text without images; a poll with images; more than four
 images; image bytes whose magic number disagrees with `mediaType`, or over 5 MB; a thread over 25
-posts; text identical to another pending post (X refuses duplicates); a reply where the cached
-parent's `reply_settings` excludes the account.
+posts; text identical to another pending post (X refuses duplicates); more than one cashtag, or
+a reply to a post that doesn't summon the account (its own, or one mentioning it or quoting one of
+its posts) -- X's rules for self-serve apps since February 2026. A parent's `reply_settings` isn't
+checked; X's refusal of it comes back at apply.
 
 **Dependencies.** A post created in this session gets a provisional ID `~N` from
 `ProvisionalIds`; replying to, liking, reposting, bookmarking or deleting it is a dependent action

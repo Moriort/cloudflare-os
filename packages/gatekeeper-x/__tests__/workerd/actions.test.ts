@@ -261,9 +261,20 @@ describe("publishing", () => {
     expect(postsBy(t.x, ALICE.id).map(post => post.text)).toEqual(["Maybe"]);
   });
 
+  it("refuses a reply X would refuse, to a post that doesn't summon the account", async () => {
+    const x = new FakeX().install();
+    const root = x.post(BOB, "What does everyone think?");
+    const t = await setup(x);
+    const props: GatekeeperProps = { userObjectId: t.userObjectId, resourceKind: "post", postId: root.id };
+    const name = crypto.randomUUID();
+    expect(failure(await hooks().run(name, props, [["reply", { text: "Agreed" }]])))
+      .toMatch(/only to a post by @alice, or one that mentions @alice or quotes one of its posts/);
+    expect((await hooks().queueLog(name)).submitted).toEqual([]);
+  });
+
   it("replies through a Post binding, confined to that conversation", async () => {
     const x = new FakeX().install();
-    const root = x.post(BOB, "What do you think?");
+    const root = x.post(BOB, "@alice What do you think?");
     const t = await setup(x);
     const props: GatekeeperProps = { userObjectId: t.userObjectId, resourceKind: "post", postId: root.id };
     const name = crypto.randomUUID();

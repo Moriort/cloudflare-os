@@ -6,7 +6,8 @@ import type { ActionDescription, ActionField } from "@gadgets/workshop-shared/ga
 import { ActionJournal } from "@gadgets/gatekeeper-kit/actions";
 import type { XPostDraft, XPostInfo, XUserInfo } from "../src/types";
 import {
-  actions, dependedRefs, imageHandles, providedRefs, validateDraft, type StoredDraft, type XAction, type XActionHost,
+  actions, dependedRefs, imageHandles, providedRefs, validateDraft, validateReplyParent, type StoredDraft, type XAction,
+  type XActionHost,
   type XActions,
 } from "../src/x-actions";
 import type { StoredIdentity } from "../src/x-credentials";
@@ -149,6 +150,16 @@ describe("references between actions", () => {
   });
 });
 
+describe("validateReplyParent", () => {
+  it("takes a reply only where X does: to a post that summons the account", () => {
+    expect(() => validateReplyParent(theirPost, me)).toThrow(/only to a post by @alice.*does none of those/);
+    expect(() => validateReplyParent({ ...theirPost, author: { ...theirPost.author, id: me.id } }, me)).not.toThrow();
+    expect(() => validateReplyParent({ ...theirPost, mentions: ["ALICE"] }, me)).not.toThrow();
+    const quoting = { ...theirPost, quoteOf: { id: "9", url: "https://x.com/alice/status/9", text: "mine", author: { ...theirPost.author, id: me.id }, createdAt: new Date(0) } };
+    expect(() => validateReplyParent(quoting, me)).not.toThrow();
+  });
+});
+
 describe("validateDraft", () => {
   const none = new Set<string>();
   const valid = (overrides: Partial<XPostDraft>): XPostDraft => ({ text: "hello", ...overrides });
@@ -176,6 +187,11 @@ describe("validateDraft", () => {
       .toThrow(/empty/);
     expect(() => validateDraft(valid({ poll: { options: ["only"], durationMinutes: 60 } }), me, none)).toThrow(/2 to 4/);
     expect(() => validateDraft(valid({ poll: { options: ["a", "b"], durationMinutes: 1 } }), me, none)).toThrow(/5 to 10,080/);
+  });
+
+  it("refuses more than the one cashtag X takes from the API", () => {
+    expect(() => validateDraft(valid({ text: "Watching $AAPL and $MSFT" }), me, none)).toThrow(/at most one cashtag/);
+    expect(() => validateDraft(valid({ text: "Watching $AAPL, up $10 today" }), me, none)).not.toThrow();
   });
 
   it("refuses a duplicate of a post already waiting, as X refuses duplicates", () => {

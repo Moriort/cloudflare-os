@@ -31,7 +31,7 @@ import type { StoredIdentity } from "./x-credentials";
 import { VENDOR_ID } from "./x-env";
 import { sentContent, type SentContent, type WireList, type WirePost } from "./x-normalize";
 import {
-  TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, duplicateKey, extractMentions, extractUrls,
+  TEXT_LIMIT, TEXT_LIMIT_PREMIUM, comparableText, comparableUrl, duplicateKey, extractCashtags, extractMentions, extractUrls,
   weightedLength,
 } from "./x-text";
 
@@ -39,6 +39,8 @@ import {
 export const MAX_THREAD_POSTS = 25;
 /** Most images one post may carry. */
 export const MAX_IMAGES_PER_POST = 4;
+/** Cashtags X takes in a post a self-serve app makes. */
+export const MAX_CASHTAGS = 1;
 /** Largest image X accepts for a post. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Longest alt text X accepts. */
@@ -213,6 +215,21 @@ const IMAGE_SIGNATURES: Record<string, (bytes: Uint8Array) => boolean> = {
  * @param pendingTexts Texts of posts already waiting to publish, as `duplicateKey` keys them, since X
  * refuses a duplicate.
  */
+/**
+ * Refuses a reply X would refuse: a self-serve app may reply only to a post that summons the account,
+ * by being its own or by mentioning it or quoting one of its posts. A reply to the account mentions
+ * it, so its own conversations stay open.
+ */
+export function validateReplyParent(parent: XPostInfo, me: StoredIdentity): void {
+  const summoned = parent.author.id === me.id
+    || parent.mentions.some(handle => handle.toLowerCase() === me.username.toLowerCase())
+    || parent.quoteOf?.author.id === me.id;
+  if (!summoned) {
+    throw new Error(`X takes a reply made through the API only to a post by @${me.username}, or one that ` +
+      `mentions @${me.username} or quotes one of its posts, and this post does none of those.`);
+  }
+}
+
 export function validateDraft(draft: XPostDraft, me: StoredIdentity, pendingTexts: ReadonlySet<string>): void {
   const images = draft.images ?? [];
   const text = draft.text ?? "";
@@ -222,6 +239,9 @@ export function validateDraft(draft: XPostDraft, me: StoredIdentity, pendingText
   if (length > limit) {
     throw new Error(`This post is ${length} characters as X counts them (each link counts as 23), ` +
       `over the ${limit.toLocaleString("en-US")}-character limit for @${me.username}.`);
+  }
+  if (extractCashtags(text).length > MAX_CASHTAGS) {
+    throw new Error("X takes at most one cashtag (such as $TICKER) in a post made through the API.");
   }
   if (images.length > MAX_IMAGES_PER_POST) throw new Error(`A post can carry at most ${MAX_IMAGES_PER_POST} images.`);
   if (draft.poll && images.length > 0) throw new Error("A post can't have both a poll and images.");

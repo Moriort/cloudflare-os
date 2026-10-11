@@ -259,7 +259,12 @@ export interface XPost {
    */
   getConversationPost(postId: string): XPost;
 
-  /** Reply to this post as the connected account. Returns the new reply. */
+  /**
+   * Reply to this post as the connected account. Returns the new reply. X takes a reply made through
+   * the API only to a post that summons the account: one by the account, or one that mentions it or
+   * quotes one of its posts (a reply to the account mentions it). Any other is refused here, before
+   * it reaches the approver, so a Post binding replies within the account's own conversations.
+   */
   reply(draft: XPostDraft): Promise<XPost>;
 
   /** Like this post as the connected account. */

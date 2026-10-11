@@ -119,8 +119,11 @@ export class FakeX {
   /** Adds a post by `author`. */
   post(author: WireUser, text: string, extra: Partial<WirePost> = {}): WirePost {
     const id = extra.id ?? this.id();
+    // X lists the handles a post mentions among its entities.
+    const mentions = [...text.matchAll(/(?:^|[^A-Za-z0-9_@])@([A-Za-z0-9_]{1,15})/g)].map(match => ({ username: match[1] }));
     const post: WirePost = {
-      id, text, author_id: author.id, conversation_id: id, created_at: new Date().toISOString(), ...extra,
+      id, text, author_id: author.id, conversation_id: id, created_at: new Date().toISOString(),
+      ...(mentions.length > 0 ? { entities: { mentions } } : {}), ...extra,
     };
     this.posts.set(id, post);
     return post;
