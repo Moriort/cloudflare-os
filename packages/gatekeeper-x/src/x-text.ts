@@ -17,7 +17,8 @@ const SINGLE_WEIGHT_RANGES: ReadonlyArray<readonly [number, number]> = [
 ];
 
 /**
- * Links X detects: an explicit http(s) URL, or a bare domain under a common top-level domain.
+ * Links X detects: an explicit http(s) URL, or a bare domain under a common top-level domain with
+ * any path or query straight after it.
  * Bare-domain detection is X's too, which is why "example.com" in a post counts and bills as a
  * link; the TLD list here is the common subset, not X's full one. A domain is held to DNS's
  * limits, 63 characters a label and 127 labels a name, which also bounds how far a failed match
@@ -26,7 +27,7 @@ const SINGLE_WEIGHT_RANGES: ReadonlyArray<readonly [number, number]> = [
 const URL_PATTERN = new RegExp(
   String.raw`\bhttps?:\/\/[^\s<>"]+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,126}` +
   String.raw`(?:com|org|net|io|dev|ai|co|app|me|ly|gg|xyz|info|edu|gov|us|uk|de|fr|jp|ca|au|in|tv|so|sh|to|cc|link|site|blog|news|page)` +
-  String.raw`\b(?:\/[^\s<>"]*)?`,
+  String.raw`\b(?:[\/?][^\s<>"]*)?`,
   "gi");
 
 /** Punctuation that ends the sentence a link sits in rather than the link. */
@@ -155,7 +156,7 @@ export function duplicateKey(text: string): string {
  */
 export function comparableUrl(url: string): string {
   const bare = url.replace(/^https?:\/\//i, "");
-  const slash = bare.indexOf("/");
-  const host = slash === -1 ? bare : bare.slice(0, slash);
+  const end = bare.search(/[/?#]/);
+  const host = end === -1 ? bare : bare.slice(0, end);
   return stripTrailingSlashes(host.toLowerCase() + bare.slice(host.length));
 }

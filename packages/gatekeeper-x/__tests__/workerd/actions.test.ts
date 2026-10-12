@@ -224,13 +224,15 @@ describe("publishing", () => {
     expect(await t.run([["getPost", "~1"], ["getInfo"]])).toMatchObject({ id: posts[0].id });
   });
 
-  it("binds the post a lost answer hid, though X kept its link's parentheses", async () => {
+  it.each([
+    ["kept its link's parentheses", "https://en.wikipedia.org/wiki/Primer_(film)", "https://en.wikipedia.org/wiki/Primer_(film)"],
+    ["read a query after a bare domain as its link's", "example.com?q=one", "http://example.com?q=one"],
+  ])("binds the post a lost answer hid, though X %s", async (_how, link, expanded) => {
     const t = await setup();
-    const link = "https://en.wikipedia.org/wiki/Primer_(film)";
     await t.run([["createPost", { text: `Read ${link}` }]]);
     // X makes the post as its own parser reads the link, whole, then the answer is lost.
     t.x.on("POST", /^\/2\/tweets$/, () => {
-      t.x.post(ALICE, "Read https://t.co/primer", { entities: { urls: [{ url: "https://t.co/primer", expanded_url: link }] } });
+      t.x.post(ALICE, "Read https://t.co/link", { entities: { urls: [{ url: "https://t.co/link", expanded_url: expanded }] } });
       return new Response("upstream error", { status: 503 });
     });
     const [{ actionId }] = await t.submitted();

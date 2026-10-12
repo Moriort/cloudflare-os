@@ -77,6 +77,13 @@ describe("comparableText", () => {
     expect(comparableText(`Read ${link}`)).toBe(comparableText("Read https://t.co/AbCdEf"));
   });
 
+  it("takes a query straight after a bare domain as part of the link, as X does", () => {
+    expect(extractUrls("Read example.com?q=one")).toEqual(["example.com?q=one"]);
+    expect(extractUrls("See example.com?q=one.")).toEqual(["example.com?q=one"]);
+    expect(comparableText("Read example.com?q=one")).toBe(comparableText("Read https://t.co/AbCdEf"));
+    expect(comparableUrl("EXAMPLE.com?q=One")).toBe("example.com?q=One");
+  });
+
   it("keeps the punctuation after a link, however the link was written", () => {
     expect(comparableText("Visit example.com.")).toBe(comparableText("Visit https://t.co/AbCdEf."));
     expect(comparableText("See (https://example.com/a), then")).toBe(comparableText("See (https://t.co/x), then"));
