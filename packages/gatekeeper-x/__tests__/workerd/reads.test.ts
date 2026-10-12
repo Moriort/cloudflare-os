@@ -157,6 +157,20 @@ describe("the daily read limit", () => {
     expect(await readsUsed(userObjectId)).toBe(20);
   });
 
+  it("counts the identity read behind an account's privacy against the limit", async () => {
+    const { x, userObjectId, props, name } = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Bob's profile is read, and cached, while there's budget...
+    unwrap(await hooks().run(name, props, [["getUser", "bob"], ["getInfo"]]));
+    await setReadsUsed(userObjectId, 50);
+    vi.setSystemTime(Date.now() + 61 * 1000);
+    const asked = x.count("GET", /^\/2\/users\/me/);
+    // ...so reading it again past the limit, a minute on, asks X nothing, its privacy held unknown.
+    unwrap(await hooks().run(name, props, [["getUser", "bob"], ["getInfo"]]));
+    expect(x.count("GET", /^\/2\/users\/me/)).toBe(asked);
+    expect(await readsUsed(userObjectId)).toBe(50);
+  });
+
   it("refuses reads past the deployment's limit, naming when it resets", async () => {
     const { userObjectId, props, name } = await setup();
     await setReadsUsed(userObjectId, 50);

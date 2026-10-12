@@ -130,8 +130,11 @@ const IDENTITY_FIELDS = "id,name,username,profile_image_url,protected,verified,s
 
 /** Reads the X user a token belongs to. */
 async function fetchIdentity(accessToken: string): Promise<StoredIdentity> {
-  const envelope: XEnvelope<WireUser> = await new XApi(accessToken)
-    .get<WireUser>("/2/users/me", { "user.fields": IDENTITY_FIELDS });
+  return identityOf(await new XApi(accessToken).get<WireUser>("/2/users/me", { "user.fields": IDENTITY_FIELDS }));
+}
+
+/** The connected account as X's `/2/users/me` answer describes it. */
+function identityOf(envelope: XEnvelope<WireUser>): StoredIdentity {
   const user = requireData(envelope, "user");
   if (!user.id || !user.username) throw new Error("X did not say which account authorized this connection.");
   return {
@@ -499,7 +502,9 @@ export class UserAccount extends DurableObject<Env> {
     if (Date.now() - stored.fetchedAt < (options?.maxAgeMs ?? IDENTITY_TTL_MS)) return stored;
     try {
       const { creds } = await this.#creds.snapshot(this.#refresh, { notify: this.#notify });
-      const fresh = await fetchIdentity(creds.accessToken);
+      // A read like any other, within the connection's daily limit: gadgets' reads can call for it.
+      const fresh = identityOf(await withinReadLimit(this, 1,
+        () => new XApi(creds.accessToken).get<WireUser>("/2/users/me", { "user.fields": IDENTITY_FIELDS })));
       if (fresh.id !== stored.id) {
         logger.error("X identity changed under a pinned connection", { event: "x.identity.changed" });
         if (recent) throw new Error("X described another account than the one this connection is pinned to.");
