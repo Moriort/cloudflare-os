@@ -566,9 +566,9 @@ async function publishOne(host: XActionHost, draft: StoredDraft, replyTo: string
     try {
       const id = await host.write(api => api.uploadImage(bytes, image.mediaType));
       if (image.altText) {
-        await host.write(api => api.post("/2/media/metadata", {
+        await confirmedWrite(host, api => api.post("/2/media/metadata", {
           id, metadata: { alt_text: { text: image.altText } },
-        }), { replayable: true });
+        }));
       }
       mediaIds.push(id);
     } catch (error) {

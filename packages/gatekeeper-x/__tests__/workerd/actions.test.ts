@@ -79,6 +79,24 @@ describe("publishing", () => {
     expect(second).toMatchObject({ text: "Two", referenced_tweets: [{ type: "replied_to", id: first.id }] });
   });
 
+  it("won't post an image whose alt text X answered with only an error", async () => {
+    const t = await setup();
+    await t.run([["createPost", { text: "Chart", images: [{ data: PNG, mediaType: "image/png", altText: "A chart" }] }]]);
+    let failed = false;
+    t.x.on("POST", /^\/2\/media\/metadata$/, () => {
+      if (failed) return undefined;
+      failed = true;
+      return json({ errors: [INTERNAL_ERROR] });
+    });
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/Something went wrong/);
+    expect(postsBy(t.x, ALICE.id)).toHaveLength(0);
+    unwrap(await t.apply(actionId));
+    const [posted] = postsBy(t.x, ALICE.id);
+    const [mediaKey] = posted.attachments?.media_keys ?? [];
+    expect(t.x.media.get(mediaKey.replace(/^3_/, ""))).toMatchObject({ altText: "A chart" });
+  });
+
   it("resumes a thread where a passing failure stopped it", async () => {
     const t = await setup();
     await t.run([["createThread", [{ text: "One" }, { text: "Two" }, { text: "Three" }]]]);
