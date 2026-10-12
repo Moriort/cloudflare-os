@@ -24,8 +24,8 @@ import type { ActionFileReference } from "@gadgets/gatekeeper-kit/action-files";
 import type { ProvisionalIds } from "@gadgets/gatekeeper-kit/simulation";
 import type { XListInfo, XPostDraft, XPostInfo, XReplySettings, XUserInfo, XUserSummary } from "./types";
 import {
-  XApi, XApiError, XCreditsError, XRateLimitError, isOutcomeUnknown, requireData, requireResult, xTime,
-  LIST_FIELDS, type XEnvelope,
+  XApi, XApiError, XCreditsError, XRateLimitError, isOutcomeUnknown, requireCreated, requireData, requireResult,
+  xTime, LIST_FIELDS, type XEnvelope,
 } from "./x-api";
 import type { StoredIdentity } from "./x-credentials";
 import { VENDOR_ID } from "./x-env";
@@ -587,7 +587,7 @@ async function publishOne(host: XActionHost, draft: StoredDraft, replyTo: string
   host.attempts.put(attemptKey, attempt);
   try {
     const created = await host.write(api => api.post<{ id: string }>("/2/tweets", body));
-    const id = requireData(created, "post").id;
+    const id = requireCreated(created, "post");
     host.attempts.delete(attemptKey);
     return id;
   } catch (error) {
@@ -954,7 +954,7 @@ export const actions = defineActions<XActionHost, XActions>({
             ...(payload.description ? { description: payload.description } : {}),
             ...(payload.private ? { private: true } : {}),
           }));
-          createdId = requireData(created, "List").id;
+          createdId = requireCreated(created, "List");
         } catch (error) {
           if (!isOutcomeUnknown(error)) {
             host.attempts.delete(attemptKey);

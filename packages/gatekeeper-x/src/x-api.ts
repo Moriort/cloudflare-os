@@ -156,11 +156,14 @@ export function requirePage<T>(envelope: XEnvelope<T[]>): XEnvelope<T[]> {
 
 /**
  * The status a problem X reported in place of what a request asked for stands for: not found, not
- * allowed, or else `otherwise`.
+ * allowed, a request X refused as invalid, or else `otherwise`.
  */
 function problemStatus(problem: XProblem | undefined, otherwise = 400): number {
   const type = problem?.type ?? "";
-  return /not-found/.test(type) ? 404 : /not-authorized|forbidden|unavailable/.test(type) ? 403 : otherwise;
+  return /not-found/.test(type) ? 404
+    : /not-authorized|forbidden|unavailable/.test(type) ? 403
+    : /invalid-request/.test(type) ? 400
+    : otherwise;
 }
 
 /**
@@ -173,6 +176,18 @@ export function requireResult<T>(envelope: XEnvelope<T>): XEnvelope<T> {
   if (!problem) return envelope;
   const status = problemStatus(problem, 502);
   throw new XApiError(status, describeProblem(problem, status), problem.type);
+}
+
+/**
+ * The ID of what a create made, with an error X reported in its place classified as a write's is
+ * (`requireResult`). X can answer a create with a 201 holding only an internal error, and may have
+ * made the post or List all the same, so that and an answer without an ID are 502s: the send is
+ * looked for before it is made again, rather than refused for good.
+ */
+export function requireCreated(envelope: XEnvelope<{ id: string }>, what: string): string {
+  const id = requireResult(envelope).data?.id;
+  if (!id) throw new XApiError(502, `X accepted the ${what} without returning its ID.`);
+  return id;
 }
 
 type QueryValue = string | number | boolean | undefined;

@@ -18,6 +18,10 @@ afterEach(() => {
 });
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+/** A problem X's schema lets a create's 201 hold in place of what it made. */
+const INTERNAL_ERROR = {
+  type: "https://api.x.com/2/problems/internal-error", title: "Internal Error", detail: "Something went wrong.", status: 500,
+};
 
 async function setup(x = new FakeX().install()) {
   const userObjectId = await seedAccount(x);
@@ -210,6 +214,18 @@ describe("publishing", () => {
     expect(t.x.posts.has(earlier.id)).toBe(true);
   });
 
+  it("fails a post X answered with only an invalid-request problem, as it would a 400", async () => {
+    const t = await setup();
+    await t.run([["createPost", { text: "Refused" }]]);
+    t.x.on("POST", /^\/2\/tweets$/, () => json({ errors: [{
+      type: "https://api.x.com/2/problems/invalid-request", title: "Invalid Request",
+      detail: "One or more parameters to your request was invalid.",
+    }] }, { status: 201 }));
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/^X refused to publish this post\. X: One or more parameters/);
+    expect(failure(await t.attempt([["getPost", "~1"], ["getInfo"]]))).toMatch(/may have been rejected/);
+  });
+
   it.each([
     ["HTML-escaped", { text: "Q&A at 5pm <3" }],
     ["with its link shortened before a full stop", { text: "Visit example.com." }],
@@ -286,6 +302,24 @@ describe("publishing", () => {
     unwrap(await t.apply(actionId));
     expect(postsBy(t.x, ALICE.id)).toHaveLength(1);
     expect(t.x.count("POST", /^\/2\/tweets$/)).toBe(1);
+  });
+
+  it("treats a post X answered with only an internal error as unconfirmed, not refused", async () => {
+    const t = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    await t.run([["createPost", { text: "Once" }]]);
+    let failed = false;
+    t.x.on("POST", /^\/2\/tweets$/, () => {
+      if (failed) return undefined;
+      failed = true;
+      return json({ errors: [INTERNAL_ERROR] }, { status: 201 });
+    });
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this post was published/);
+    expect(failure(await t.reject(actionId))).toMatch(/never confirmed whether this post was published/);
+    vi.setSystemTime(Date.now() + 6 * 60 * 1000);
+    unwrap(await t.apply(actionId));
+    expect(postsBy(t.x, ALICE.id)).toHaveLength(1);
   });
 
   it("won't let a post X may have made be rejected, and posts it once X has had time to show it", async () => {
@@ -532,6 +566,24 @@ describe("Lists", () => {
     const [list] = [...t.x.lists.values()];
     expect(t.x.lists.size).toBe(1);
     expect(await t.run([["getList", "~1"], ["getInfo"]])).toMatchObject({ id: list.id });
+  });
+
+  it("treats a List X answered with only an internal error as unconfirmed, not refused", async () => {
+    const t = await setup();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    await t.run([["createList", "Friends"]]);
+    let failed = false;
+    t.x.on("POST", /^\/2\/lists$/, () => {
+      if (failed) return undefined;
+      failed = true;
+      return json({ errors: [INTERNAL_ERROR] }, { status: 201 });
+    });
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/did not confirm whether this List was created/);
+    expect(failure(await t.reject(actionId))).toMatch(/never confirmed whether this List was created/);
+    vi.setSystemTime(Date.now() + 6 * 60 * 1000);
+    unwrap(await t.apply(actionId));
+    expect(t.x.lists.size).toBe(1);
   });
 
   it("never binds a List just like it that was there before the first create", async () => {

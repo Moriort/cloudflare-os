@@ -269,7 +269,11 @@ One `request(method, path, {query, body, token})`: bearer token, 30 s timeout, b
 `XCreditsError`; other 4xx become `XApiError` with X's `title`/`detail`. A 200 can carry partial
 `errors[]` (rows X couldn't hydrate); those rows are dropped and logged by type, never by content.
 A listing page holding only `errors[]` fails with X's explanation (`requirePage`): read as an empty
-page, it would end the cursor as though nothing were left, and be cached that way.
+page, it would end the cursor as though nothing were left, and be cached that way. Nor is a write
+or create answered with only `errors[]` taken as done (`requireResult`, `requireCreated`): a problem
+saying what it named wasn't found or allowed, or that the request was invalid, refuses it; any
+other, such as the internal error X's schema lets even a 201 hold, leaves its outcome unknown, so a
+write is tried again and a create is looked for before it is sent again.
 
 Endpoints (per-user limits per 15 minutes unless noted; prices from X's pay-per-usage table. Reads
 and post creation are priced explicitly there; the other write rows map onto its classes — "User
@@ -1084,9 +1088,10 @@ departed from the design above:
   `next_token`; every other listing with `pagination_token`.
 - **Reconciliation is inline.** The kit's `ActionOutcomeUnknownError` is terminal, so it cannot carry
   "check, then post". A send instead writes an attempt marker (`attempt:<id>:<index>`: the send's
-  time and the media IDs it attached) before `POST /2/tweets`; a lost answer or a 5xx leaves the
-  action pending with a plain error, and the next apply first reads the account's posts dated from
-  10 s before the attempt to 5 minutes after it (`max_results=100`). It binds a post only when
+  time and the media IDs it attached) before `POST /2/tweets`; a lost answer, a 5xx or a 201
+  holding only an internal error leaves the action pending with a plain error, and the next apply
+  first reads the account's posts dated from 10 s before the attempt to 5 minutes after it
+  (`max_results=100`). It binds a post only when
   exactly one matches the draft's reply parent, `comparableText` (with X's HTML entities turned
   back, the punctuation after a link kept either way, and a reply's leading handles, which X adds,
   dropped), link destinations
