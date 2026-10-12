@@ -25,7 +25,9 @@ const CONSULTAS = [
     clave: "proyectos",
     sql: "select id, title, business_name, status from projects order by created_at desc nulls last limit 8",
   },
-  { clave: "leads", sql: "select id, full_name, email, status, created_at from leads order by created_at desc limit 8" },
+  // La tabla `leads` guarda el mensaje y las señales del visitante, no un
+  // nombre: se muestra lo que realmente hay en ella.
+  { clave: "leads", sql: "select id, intent, score, mensaje, created_at from leads order by created_at desc limit 8" },
   { clave: "documentos", sql: "select count(*)::int as total from project_documents" },
   { clave: "agentes", sql: "select agent_key, enabled from agent_config order by agent_key" },
 ];
@@ -37,20 +39,50 @@ export class Gadget extends DurableObject {
     this.env = env;
   }
 
-  /** El gatekeeper es opcional: sin binding, el dashboard lo explica. */
+  /**
+   * Abre la sesión del gatekeeper.
+   *
+   * El binding `env.supabase` NO es el gatekeeper: es un cliente con solo
+   * `describe`, `getId`, `setTitle`, `openSession` y `getCreationSpec`.
+   * Las operaciones (`listProjects`, `query`) viven en la sesión que
+   * devuelve `openSession()`. Llamarlas sobre el binding falla en
+   * silencio, que es exactamente lo que hacía la primera versión.
+   *
+   * Se detecta por característica porque la forma exacta de la sesión
+   * depende de qué vendor esté detrás del binding.
+   */
   async getGatekeeper() {
-    const gk = this.env?.supabase;
-    if (!gk) {
+    const cliente = this.env?.supabase;
+    if (!cliente) {
       return {
         error:
           "Este gadget no tiene conectado el gatekeeper de Supabase. Abrí el blueprint desde el catálogo y conectá Supabase en el panel de conexiones.",
       };
     }
-    return { gatekeeper: gk };
+    if (typeof cliente.openSession !== "function") {
+      return { error: "El binding de Supabase no es válido: no expone openSession()." };
+    }
+
+    let sesion;
+    try {
+      sesion = await cliente.openSession();
+    } catch (err) {
+      return { error: `No se pudo abrir la sesión de Supabase: ${mensajeDe(err)}` };
+    }
+
+    const tieneConsulta = typeof sesion?.query === "function";
+    const tieneProyectos = typeof sesion?.listProjects === "function";
+    if (!tieneConsulta && !tieneProyectos) {
+      return {
+        error:
+          "La sesión de Supabase no expone consultas (listProjects/query). Revisá que el gatekeeper conectado sea el de Supabase y que la cuenta tenga un proyecto.",
+      };
+    }
+    return { sesion };
   }
 
   async fetchData() {
-    const { gatekeeper, error } = await this.getGatekeeper();
+    const { sesion: gatekeeper, error } = await this.getGatekeeper();
     if (error) {
       return { estado: "sin-conexion", mensaje: error, proyectos: [], leads: [], metricas: {} };
     }

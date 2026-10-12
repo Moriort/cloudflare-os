@@ -269,13 +269,13 @@ function renderLeads(leads) {
   }
   container.innerHTML = `
     <table class="table">
-      <thead><tr><th>Nombre</th><th>Email</th><th>Estado</th></tr></thead>
+      <thead><tr><th>Intención</th><th>Mensaje</th><th>Puntaje</th></tr></thead>
       <tbody>
         ${leads.map(l => `
           <tr>
-            <td>${escapeHtml(l.full_name || "—")}</td>
-            <td>${escapeHtml(l.email || "—")}</td>
-            <td><span class="badge ${escapeHtml(l.status || "pending")}">${escapeHtml(l.status || "sin estado")}</span></td>
+            <td>${escapeHtml(l.intent || "—")}</td>
+            <td>${escapeHtml((l.mensaje || "—").slice(0, 90))}</td>
+            <td>${escapeHtml(l.score ?? "—")}</td>
           </tr>`).join("")}
       </tbody>
     </table>`;
