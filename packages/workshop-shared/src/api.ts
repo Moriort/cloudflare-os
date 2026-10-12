@@ -887,7 +887,7 @@ export const MAX_SITE_NAME_LENGTH = 40;
  * What this deployment calls itself when the admin has not set a custom `siteName`. Also the
  * product's own name, so it appears in prose the server and UI address to the user.
  */
-export const DEFAULT_SITE_NAME = "Cloudflare OS";
+export const DEFAULT_SITE_NAME = "Oretron OS";
 
 /**
  * The name to display for this deployment. Accepts an unset or not-yet-loaded `siteName` so both

@@ -77,10 +77,42 @@ export function parseBlueprintKvRecord(raw: string): BlueprintKvRecord {
   return kvRecord;
 }
 
+/**
+ * Completa los campos que el lector necesita para no devolver `undefined`.
+ *
+ * Una sola entrada malformada en el KV no puede tumbar la página entera:
+ * `reviveBlueprintMetadata` hacía `new Date(metadata.created)` a ciegas y
+ * una entrada sin `metadata` reventaba con «Cannot read properties of
+ * undefined (reading 'created')», que Cap'n Web propagaba al navegador y
+ * dejaba el catálogo (y con él, el OS) sin funcionar. Ahora la entrada se
+ * conserva con lo mínimo para que la UI pueda mostrarla.
+ */
+function completarMetadata(entry: BlueprintPublicInfo): BlueprintPublicInfo {
+  let metadata = entry.metadata;
+  if (!metadata || typeof metadata !== "object") {
+    metadata = {
+      title: entry.id ?? "Sin título",
+      description: "",
+      author: { type: "user", name: "Desconocido", id: "desconocido" },
+      created: new Date(0),
+      version: 1,
+      lastUpdated: new Date(0),
+      bindings: {},
+    };
+  }
+  entry.metadata = reviveBlueprintMetadata(metadata);
+  return entry;
+}
+
 export function parseFeaturedBlueprints(raw: string): BlueprintPublicInfo[] {
-  let featured = JSON.parse(raw) as BlueprintPublicInfo[];
-  for (let entry of featured) {
-    entry.metadata = reviveBlueprintMetadata(entry.metadata);
+  let parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
+  const featured: BlueprintPublicInfo[] = [];
+  for (let entry of parsed) {
+    // Una entrada que ni siquiera tiene id no se puede mostrar ni borrar
+    // desde la UI: se descarta en vez de romper el catálogo completo.
+    if (!entry || typeof entry !== "object" || !entry.id) continue;
+    featured.push(completarMetadata(entry));
   }
   return featured;
 }
