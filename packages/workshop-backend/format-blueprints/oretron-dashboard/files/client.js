@@ -4,15 +4,15 @@ const style = document.createElement("style");
 style.textContent = `
 :root {
   color-scheme: dark;
-  --bg: #0D1117;
-  --surface: #101828;
-  --border: #1E2535;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #3b82f6;
-  --success: #10b981;
-  --warning: #f59e0b;
-  --error: #ef4444;
+  --bg: #080808;
+  --surface: #111111;
+  --border: #2D2F2F;
+  --text: #FFFFFF;
+  --muted: #8D908F;
+  --accent: #9A5B3D;
+  --success: #2F6F55;
+  --warning: #8A6726;
+  --error: #A9473E;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -131,9 +131,9 @@ html, body {
   font-weight: 500;
 }
 
-.badge.active { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-.badge.pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-.badge.completed { background: rgba(59, 130, 246, 0.2); color: var(--accent); }
+.badge.active { background: rgba(47, 111, 85, 0.2); color: var(--success); }
+.badge.pending { background: rgba(138, 103, 38, 0.2); color: var(--warning); }
+.badge.completed { background: rgba(154, 91, 61, 0.2); color: var(--accent); }
 
 .loading {
   display: flex;
@@ -148,6 +148,21 @@ html, body {
   padding: 40px;
   color: var(--muted);
 }
+
+.aviso {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.aviso strong { display: block; margin-bottom: 4px; }
+.aviso span { color: var(--muted); }
 `;
 
 document.head.appendChild(style);
@@ -158,7 +173,7 @@ app.innerHTML = `
   <div class="header">
     <div class="logo">
       <svg viewBox="0 0 32 32" fill="none">
-        <rect width="32" height="32" rx="8" fill="#3b82f6"/>
+        <rect width="32" height="32" rx="8" fill="#9A5B3D"/>
         <path d="M8 16C8 11.58 11.58 8 16 8C20.42 8 24 11.58 24 16" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
         <circle cx="16" cy="20" r="4" fill="white"/>
       </svg>
@@ -203,86 +218,92 @@ app.innerHTML = `
 
 document.body.appendChild(app);
 
-// Simulated data (replace with actual Supabase queries via gatekeeper)
-const mockProjects = [
-  { name: "Oretron Platform", status: "active", client: "Interno", progress: 85 },
-  { name: "Mining Dashboard", status: "active", client: "Codelco", progress: 60 },
-  { name: "E-commerce Client", status: "pending", client: "Retail Corp", progress: 20 },
-];
+// ── Datos reales ────────────────────────────────────────────────────────────
+// El gadget NO inventa nada: pide al servidor (que consulta Supabase por el
+// gatekeeper) y muestra lo que viene, incluido el motivo si algo falla.
 
-const mockLeads = [
-  { name: "Juan Pérez", email: "juan@empresa.cl", source: "Web", status: "new" },
-  { name: "María Silva", email: "maria@mining.cl", source: "Referido", status: "contacted" },
-  { name: "Carlos López", email: "carlos@tech.cl", source: "LinkedIn", status: "qualified" },
-];
+const escapeHtml = (v) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-function renderProjects() {
+const ESTADOS = {
+  "sin-conexion": ["Falta conectar Supabase", "Este gadget no tiene el gatekeeper de Supabase conectado."],
+  "sin-proyecto": ["Sin proyecto de Supabase", "El gatekeeper no ve ningún proyecto."],
+  error: ["No se pudo consultar", "Revisá la conexión y los permisos."],
+  parcial: ["Datos parciales", "Algunas consultas fallaron."],
+};
+
+function renderAviso(estado, mensaje) {
+  const [titulo, base] = ESTADOS[estado] || ["Sin datos", ""];
+  const cont = document.createElement("div");
+  cont.className = "aviso";
+  cont.innerHTML = `<strong>${escapeHtml(titulo)}</strong><span>${escapeHtml(mensaje || base)}</span>`;
+  const contenedor = document.getElementById("projects-list").parentElement;
+  contenedor.parentElement.insertBefore(cont, contenedor);
+}
+
+function renderProjects(proyectos) {
   const container = document.getElementById("projects-list");
-  if (!mockProjects.length) {
-    container.innerHTML = '<div class="empty">No hay proyectos</div>';
+  if (!proyectos.length) {
+    container.innerHTML = '<div class="empty">Sin proyectos</div>';
     return;
   }
-
   container.innerHTML = `
     <table class="table">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Cliente</th>
-          <th>Estado</th>
-          <th>Progreso</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Nombre</th><th>Cliente</th><th>Estado</th></tr></thead>
       <tbody>
-        ${mockProjects.map(p => `
+        ${proyectos.map(p => `
           <tr>
-            <td>${p.name}</td>
-            <td>${p.client}</td>
-            <td><span class="badge ${p.status}">${p.status}</span></td>
-            <td>${p.progress}%</td>
-          </tr>
-        `).join("")}
+            <td>${escapeHtml(p.title || p.business_name || "—")}</td>
+            <td>${escapeHtml(p.business_name || "—")}</td>
+            <td><span class="badge ${escapeHtml(p.status || "pending")}">${escapeHtml(p.status || "sin estado")}</span></td>
+          </tr>`).join("")}
       </tbody>
-    </table>
-  `;
+    </table>`;
 }
 
-function renderLeads() {
+function renderLeads(leads) {
   const container = document.getElementById("leads-list");
-  if (!mockLeads.length) {
-    container.innerHTML = '<div class="empty">No hay leads</div>';
+  if (!leads.length) {
+    container.innerHTML = '<div class="empty">Sin leads</div>';
     return;
   }
-
   container.innerHTML = `
     <table class="table">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Email</th>
-          <th>Fuente</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Nombre</th><th>Email</th><th>Estado</th></tr></thead>
       <tbody>
-        ${mockLeads.map(l => `
+        ${leads.map(l => `
           <tr>
-            <td>${l.name}</td>
-            <td>${l.email}</td>
-            <td>${l.source}</td>
-            <td><span class="badge ${l.status}">${l.status}</span></td>
-          </tr>
-        `).join("")}
+            <td>${escapeHtml(l.full_name || "—")}</td>
+            <td>${escapeHtml(l.email || "—")}</td>
+            <td><span class="badge ${escapeHtml(l.status || "pending")}">${escapeHtml(l.status || "sin estado")}</span></td>
+          </tr>`).join("")}
       </tbody>
-    </table>
-  `;
+    </table>`;
 }
 
-// Update stats
-document.getElementById("stat-projects").textContent = mockProjects.length;
-document.getElementById("stat-leads").textContent = mockLeads.length;
-document.getElementById("stat-docs").textContent = "12";
-document.getElementById("stat-agents").textContent = "3";
+async function cargar() {
+  const set = (id, v) => { document.getElementById(id).textContent = v ?? "—"; };
+  try {
+    const d = await gadget.getData();
+    if (!d || d.estado !== "ok") {
+      renderAviso(d?.estado, d?.mensaje);
+      set("stat-projects", "—");
+      set("stat-leads", "—");
+      set("stat-docs", "—");
+      set("stat-agents", "—");
+      document.getElementById("projects-list").innerHTML = "";
+      document.getElementById("leads-list").innerHTML = "";
+      return;
+    }
+    set("stat-projects", d.metricas.proyectos ?? d.proyectos.length);
+    set("stat-leads", d.metricas.leads ?? d.leads.length);
+    set("stat-docs", d.metricas.documentos ?? "—");
+    set("stat-agents", d.metricas.agentes ?? "—");
+    renderProjects(d.proyectos || []);
+    renderLeads(d.leads || []);
+  } catch (e) {
+    renderAviso("error", e?.message || String(e));
+  }
+}
 
-renderProjects();
-renderLeads();
+cargar();
