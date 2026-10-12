@@ -36,9 +36,9 @@
   --color-kumo-fill-hover: #dededb;
   --color-kumo-interact: #cac8c3;
 
-  /* Brand — Oretron blue accent (intent only) */
-  --color-kumo-brand: #3B82F6;
-  --color-kumo-brand-hover: #2563EB;
+  /* Brand — acento ore de Oretron (identidad; el azul eléctrico está prohibido) */
+  --color-kumo-brand: #D5AC95;
+  --color-kumo-brand-hover: #E5C4AE;
 
   /* Border / line tokens — neutral hairlines */
   --color-kumo-line: #1411100f;
@@ -69,15 +69,15 @@
   --text-color-kumo-strong: #100f0d;
   --text-color-kumo-subtle: oklch(52% 0.006 60);
   --text-color-kumo-inactive: oklch(66% 0.005 60);
-  --text-color-kumo-brand: #3B82F6;
-  --text-color-kumo-link: #3B82F6;
+  --text-color-kumo-brand: #D5AC95;
+  --text-color-kumo-link: #D5AC95;
   --text-color-kumo-success: oklch(72.3% 0.219 149.579);
   --text-color-kumo-danger: oklch(63.7% 0.237 25.331);
   --text-color-kumo-warning: oklch(47.6% 0.114 61.907);
 
   /* ===== CUSTOM BRAND TOKENS (for direct use alongside Kumo tokens) ===== */
-  --color-accent-100: #3B82F6;
-  --color-accent-200: #60A5FA;
+  --color-accent-100: #9A5B3D;
+  --color-accent-200: #D5AC95;
   --color-background-100: #fcfcfb;
   --color-background-200: #f8f8f7;
   --color-background-300: #f3f3f1;
@@ -86,10 +86,10 @@
   --color-foreground-300: #1c1a18;
   --color-border-100: #e8e7e4;
   --color-border-100-50: #e8e7e480;
-  --color-selection-bg: #DBEAFE;
-  --color-selection-text: #3B82F6;
-  --color-shadow-accent-light: #93C5FD;
-  --color-shadow-accent-dark: #1D4ED8;
+  --color-selection-bg: color-mix(in srgb, var(--color-kumo-brand) 28%, transparent);
+  --color-selection-text: oklch(0.97 0.006 285);
+  --color-shadow-accent-light: #D5AC9555;
+  --color-shadow-accent-dark: #00000080;
 
   /* Category colors */
   --color-compute-100: #0a95ff;
@@ -158,8 +158,8 @@
   --color-kumo-ring: oklch(0.52 0.065 285);
   --color-kumo-bubble-user: oklch(0.225 0.025 285);
 
-  --color-kumo-brand: #3B82F6;
-  --color-kumo-brand-hover: #60A5FA;
+  --color-kumo-brand: #D5AC95;
+  --color-kumo-brand-hover: #E5C4AE;
 
   --color-kumo-info: oklch(62.3% 0.214 259.815);
   --color-kumo-info-tint: oklch(0.25 0.065 259.815);
@@ -180,14 +180,14 @@
   --text-color-kumo-strong: oklch(0.92 0.01 285);
   --text-color-kumo-subtle: oklch(0.66 0.02 285);
   --text-color-kumo-inactive: oklch(0.58 0.025 285);
-  --text-color-kumo-brand: #60A5FA;
-  --text-color-kumo-link: #60A5FA;
+  --text-color-kumo-brand: #D5AC95;
+  --text-color-kumo-link: #D5AC95;
   --text-color-kumo-success: oklch(79.2% 0.209 151.711);
   --text-color-kumo-danger: oklch(70.4% 0.191 22.216);
   --text-color-kumo-warning: oklch(82.8% 0.189 84.429);
 
-  --color-accent-100: #3B82F6;
-  --color-accent-200: #60A5FA;
+  --color-accent-100: #9A5B3D;
+  --color-accent-200: #D5AC95;
   --color-background-100: oklch(0.115 0.012 285);
   --color-background-200: oklch(0.155 0.011 285);
   --color-background-300: oklch(0.225 0.025 285);
@@ -196,10 +196,10 @@
   --color-foreground-300: oklch(0.66 0.02 285);
   --color-border-100: oklch(0.34 0.022 285);
   --color-border-100-50: oklch(0.34 0.022 285 / 0.5);
-  --color-selection-bg: color-mix(in srgb, var(--color-kumo-brand) 28%, transparent);
-  --color-selection-text: oklch(0.97 0.006 285);
-  --color-shadow-accent-light: #ff663355;
-  --color-shadow-accent-dark: #00000080;
+  --color-selection-bg: #F5F4F0;
+  --color-selection-text: #81472F;
+  --color-shadow-accent-light: #D5AC95;
+  --color-shadow-accent-dark: #81472F;
 
   --color-compute-100: oklch(74% 0.16 250);
   --color-compute-200: oklch(0.25 0.065 250);
