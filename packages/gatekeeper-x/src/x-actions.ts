@@ -24,7 +24,7 @@ import type { ActionFileReference } from "@gadgets/gatekeeper-kit/action-files";
 import type { ProvisionalIds } from "@gadgets/gatekeeper-kit/simulation";
 import type { XListInfo, XPostDraft, XPostInfo, XReplySettings, XUserInfo, XUserSummary } from "./types";
 import {
-  XApi, XApiError, XCreditsError, XRateLimitError, isOutcomeUnknown, requireData, xTime,
+  XApi, XApiError, XCreditsError, XRateLimitError, isOutcomeUnknown, requireData, requireResult, xTime,
   LIST_FIELDS, type XEnvelope,
 } from "./x-api";
 import type { StoredIdentity } from "./x-credentials";
@@ -358,10 +358,6 @@ function refuse(error: unknown, what: string): never {
 }
 
 /**
- * Runs a write X makes idempotent -- liking a liked post or following a followed account answers
- * with the resulting state, not an error -- so a replay under refreshed credentials is safe.
- */
-/**
  * Whether the account already followed or muted `userId`, so a revert restores that rather than
  * undoing a change that made none: read from X once, before the action's first effect, and kept for
  * its retries, which would otherwise read that effect back. A follow request already sent counts as
@@ -384,13 +380,23 @@ async function stateBefore(host: XActionHost, actionId: number, userId: string,
   return before === "unknown" ? undefined : before;
 }
 
-async function toggle(host: XActionHost, op: (api: XApi, me: StoredIdentity) => Promise<unknown>,
+/**
+ * Runs a write X makes idempotent -- liking a liked post or following a followed account answers
+ * with the resulting state, not an error -- so a replay under refreshed credentials is safe.
+ */
+async function toggle(host: XActionHost, op: (api: XApi, me: StoredIdentity) => Promise<XEnvelope<unknown>>,
                       what: string): Promise<void> {
   try {
-    await host.write(op, { replayable: true });
+    await confirmedWrite(host, op);
   } catch (error) {
     refuse(error, what);
   }
+}
+
+/** Runs a replayable write, refusing an answer with an error in place of its result (`requireResult`). */
+async function confirmedWrite(host: XActionHost, op: (api: XApi, me: StoredIdentity) => Promise<XEnvelope<unknown>>):
+    Promise<void> {
+  requireResult(await host.write(op, { replayable: true }));
 }
 
 /** How far X's clock may run behind ours. */
@@ -662,7 +668,7 @@ function refuseIfSent(host: XActionHost, id: number, posts: number): void {
 async function deletePosts(host: XActionHost, ids: readonly string[]): Promise<void> {
   for (const id of ids.toReversed()) {
     try {
-      await host.write(api => api.delete(`/2/tweets/${id}`), { replayable: true });
+      await confirmedWrite(host, api => api.delete(`/2/tweets/${id}`));
     } catch (error) {
       if (error instanceof XApiError && error.status === 404) continue;
       throw error;
@@ -1022,7 +1028,7 @@ export const actions = defineActions<XActionHost, XActions>({
     apply: async (payload, host) => {
       const id = listId(host, payload.list);
       try {
-        await host.write(api => api.delete(`/2/lists/${id}`), { replayable: true });
+        await confirmedWrite(host, api => api.delete(`/2/lists/${id}`));
       } catch (error) {
         if (!(error instanceof XApiError && error.status === 404)) refuse(error, "delete this List");
       }
@@ -1109,9 +1115,9 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       // A follow that changed nothing leaves nothing to undo.
       if (before === on) return;
       const target = action.payload.user.id;
-      await host.write((api, me) => action.payload.on
+      await confirmedWrite(host, (api, me) => action.payload.on
         ? api.delete(`/2/users/${me.id}/following/${target}`)
-        : api.post(`/2/users/${me.id}/following`, { target_user_id: target }), { replayable: true });
+        : api.post(`/2/users/${me.id}/following`, { target_user_id: target }));
       return;
     }
     case "mute": {
@@ -1119,15 +1125,15 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
       if (before === undefined) return PRIOR_UNKNOWN;
       if (before === on) return;
       const target = action.payload.user.id;
-      await host.write((api, me) => action.payload.on
+      await confirmedWrite(host, (api, me) => action.payload.on
         ? api.delete(`/2/users/${me.id}/muting/${target}`)
-        : api.post(`/2/users/${me.id}/muting`, { target_user_id: target }), { replayable: true });
+        : api.post(`/2/users/${me.id}/muting`, { target_user_id: target }));
       return;
     }
     case "createList":
       if (action.payload.createdId) {
         const id = action.payload.createdId;
-        await host.write(api => api.delete(`/2/lists/${id}`), { replayable: true });
+        await confirmedWrite(host, api => api.delete(`/2/lists/${id}`));
       }
       return;
     case "updateList": {
@@ -1143,7 +1149,7 @@ export async function revert(action: XAction, host: XActionHost): Promise<Revert
         ...(changes.description !== undefined ? { description: previous.description } : {}),
         ...(changes.private !== undefined ? { private: previous.private } : {}),
       };
-      await host.write(api => api.put(`/2/lists/${id}`, restored), { replayable: true });
+      await confirmedWrite(host, api => api.put(`/2/lists/${id}`, restored));
       return;
     }
     case "listMember":

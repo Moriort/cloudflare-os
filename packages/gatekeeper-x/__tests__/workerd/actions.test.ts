@@ -631,6 +631,40 @@ describe("Lists", () => {
     expect(reserved).toBe(100);
   });
 
+  it("won't record a change X answered with errors in place of its result", async () => {
+    const t = await setup();
+    t.x.lists.set("5", { id: "5", name: "Old", description: "", private: false, owner_id: ALICE.id });
+    await t.run([["getList", "5"], ["update", { name: "New" }]]);
+    let failing = true;
+    t.x.on("PUT", /^\/2\/lists\/5$/, () => {
+      if (!failing) return undefined;
+      failing = false;
+      return json({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] });
+    });
+    const [{ actionId }] = await t.submitted();
+    expect(failure(await t.apply(actionId))).toMatch(/Something went wrong/);
+    expect(t.x.lists.get("5")).toMatchObject({ name: "Old" });
+    unwrap(await t.apply(actionId));
+    expect(t.x.lists.get("5")).toMatchObject({ name: "New" });
+  });
+
+  it("won't report a revert X answered with errors in place of its result", async () => {
+    const t = await setup();
+    await t.run([["getUser", "bob"], ["follow"]]);
+    const [{ actionId }] = await t.submitted();
+    unwrap(await t.apply(actionId));
+    let failing = true;
+    t.x.on("DELETE", /\/following\//, () => {
+      if (!failing) return undefined;
+      failing = false;
+      return json({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] });
+    });
+    expect(failure(await t.revert(actionId))).toMatch(/Something went wrong/);
+    expect([...t.x.following]).toEqual([`${ALICE.id}:${BOB.id}`]);
+    unwrap(await t.revert(actionId));
+    expect(t.x.following.size).toBe(0);
+  });
+
   it("restores a List's original details though the change's first answer was lost", async () => {
     const t = await setup();
     t.x.lists.set("5", { id: "5", name: "Old", description: "before", private: false, owner_id: ALICE.id });

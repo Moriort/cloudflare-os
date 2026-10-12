@@ -154,10 +154,25 @@ export function requirePage<T>(envelope: XEnvelope<T[]>): XEnvelope<T[]> {
   throw new XApiError(status, describeProblem(problem, status), problem.type);
 }
 
-/** The status a problem X reported in place of what a read asked for stands for. */
-function problemStatus(problem: XProblem | undefined): number {
+/**
+ * The status a problem X reported in place of what a request asked for stands for: not found, not
+ * allowed, or else `otherwise`.
+ */
+function problemStatus(problem: XProblem | undefined, otherwise = 400): number {
   const type = problem?.type ?? "";
-  return /not-found/.test(type) ? 404 : /not-authorized|forbidden|unavailable/.test(type) ? 403 : 400;
+  return /not-found/.test(type) ? 404 : /not-authorized|forbidden|unavailable/.test(type) ? 403 : otherwise;
+}
+
+/**
+ * A write's answer, or the error X reported in place of its result: X can answer a write it didn't
+ * make with a 200 holding only `errors`, which taken as done would record the change as applied. A
+ * problem of no telling kind is a 502, so the write is tried again rather than refused for good.
+ */
+export function requireResult<T>(envelope: XEnvelope<T>): XEnvelope<T> {
+  const problem = envelope.data === undefined ? envelope.errors?.[0] : undefined;
+  if (!problem) return envelope;
+  const status = problemStatus(problem, 502);
+  throw new XApiError(status, describeProblem(problem, status), problem.type);
 }
 
 type QueryValue = string | number | boolean | undefined;

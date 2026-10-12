@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   XApi, XApiError, XCreditsError, XRateLimitError, XTransportError, billableResources, isOutcomeUnknown,
-  isXAuthError, pageQuery, requireData, requirePage, xTime,
+  isXAuthError, pageQuery, requireData, requirePage, requireResult, xTime,
 } from "../src/x-api";
 
 function respond(status: number, body?: unknown, headers: Record<string, string> = {}): void {
@@ -129,6 +129,17 @@ describe("requirePage", () => {
     const partial = { data: [{ id: "1" }], errors: [{ type: "https://api.twitter.com/2/problems/resource-not-found" }] };
     expect(requirePage(partial)).toBe(partial);
     expect(requirePage({ meta: { result_count: 0 } })).toEqual({ meta: { result_count: 0 } });
+  });
+});
+
+describe("requireResult", () => {
+  it("fails a write X answered with errors in place of its result, to try again unless X refused it", () => {
+    expect(() => requireResult({ errors: [{ title: "Internal Error", detail: "Something went wrong.", type: "about:blank" }] }))
+      .toThrow(expect.objectContaining({ status: 502, message: "X: Something went wrong." }));
+    expect(() => requireResult({ errors: [{ type: "https://api.twitter.com/2/problems/resource-not-found", detail: "No such post." }] }))
+      .toThrow(expect.objectContaining({ status: 404 }));
+    const done = { data: { liked: true }, errors: [{ type: "https://api.twitter.com/2/problems/resource-not-found" }] };
+    expect(requireResult(done)).toBe(done);
   });
 });
 
